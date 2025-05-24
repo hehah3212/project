@@ -113,7 +113,7 @@ export default function Home() {
           </div>
         </div>
 
-        {/* 검색창 (모달식 고정)! */}
+        {/* 검색창 (모달식 고정) */}
         {showSearch && (
           <div className="fixed top-20 left-1/2 -translate-x-1/2 w-full max-w-3xl bg-white p-4 rounded-xl shadow z-50">
             <div className="flex justify-between items-center mb-2">
@@ -122,7 +122,7 @@ export default function Home() {
                 className="text-sm text-gray-500 hover:text-black"
                 onClick={() => setShowSearch(false)}
               >
-                ✕ 닫기!
+                ✕ 닫기
               </button>
             </div>
             <BookSearch onBookSelect={handleBookSelect} />
