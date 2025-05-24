@@ -122,7 +122,7 @@ export default function Home() {
                 className="text-sm text-gray-500 hover:text-black"
                 onClick={() => setShowSearch(false)}
               >
-                ✕ 닫기
+                {/* ✕ 닫기 */}
               </button>
             </div>
             <BookSearch onBookSelect={handleBookSelect} />
