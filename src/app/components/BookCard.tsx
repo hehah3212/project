@@ -4,6 +4,9 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import ProgressBar from "./ProgressBar";
 import { Book } from "./BookSearch";
+import { getAuth, onAuthStateChanged } from "firebase/auth";
+import { doc, setDoc, getDoc } from "firebase/firestore";
+import { db } from "../utils/firebase";
 
 type BookCardProps = {
   book: Book;
@@ -17,35 +20,42 @@ export default function BookCard({ book, onDelete }: BookCardProps) {
 
   const safeReadPages = Math.min(readPages, totalPages);
   const progress = totalPages > 0 ? (safeReadPages / totalPages) * 100 : 0;
-  const storageKey = book.isbn.replace(/[^a-zA-Z0-9]/g, "") || "default-book";
 
   useEffect(() => {
-    const saved = localStorage.getItem(`reading-${storageKey}`);
-    if (saved) {
-      const data = JSON.parse(saved);
-      setTotalPages(data.totalPages || 320);
-      setReadPages(data.readPages || 0);
-      setSummary(data.summary || "");
-    } else {
-      setTotalPages(320);
-      setReadPages(0);
-      setSummary("");
-    }
+    const auth = getAuth();
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        const ref = doc(db, "users", user.uid, "books", book.isbn);
+        const snap = await getDoc(ref);
+        if (snap.exists()) {
+          const data = snap.data();
+          setTotalPages(data.totalPages || 320);
+          setReadPages(data.readPages || 0);
+          setSummary(data.summary || "");
+        }
+      }
+    });
+    return () => unsubscribe();
   }, [book]);
-  {onDelete ? (
-  <button onClick={() => onDelete(book.isbn)}>🧪 삭제 확인</button>
-) : (
-  <div>❌ onDelete 없음</div>
-)}
 
   useEffect(() => {
-    const data = { totalPages, readPages, summary };
-    localStorage.setItem(`reading-${storageKey}`, JSON.stringify(data));
+    const saveBookData = async () => {
+      const user = getAuth().currentUser;
+      if (!user) return;
+
+      const ref = doc(db, "users", user.uid, "books", book.isbn);
+      await setDoc(ref, {
+        totalPages,
+        readPages,
+        summary,
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
+    };
+    saveBookData();
   }, [totalPages, readPages, summary, book]);
 
   return (
     <div className="relative bg-white p-6 rounded-xl shadow space-y-6">
-      {/* 🗑 삭제 버튼 */}
       {onDelete && (
         <button
           onClick={() => onDelete(book.isbn)}

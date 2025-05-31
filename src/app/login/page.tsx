@@ -15,7 +15,10 @@ export default function LoginPage() {
     try {
       const result = await signInWithEmailAndPassword(auth, email, password);
       const user = result.user;
-      localStorage.setItem("user", user.email || ""); // 간단 저장
+      localStorage.setItem("user", JSON.stringify({
+        uid: user.uid,
+        email: user.email,
+      }));; // 고유 키
       router.push("/");
     } catch (error: any) {
       alert("로그인 실패: " + error.message);
