@@ -38,21 +38,20 @@ export default function BookCard({ book, onDelete }: BookCardProps) {
     return () => unsubscribe();
   }, [book]);
 
-  useEffect(() => {
-    const saveBookData = async () => {
-      const user = getAuth().currentUser;
-      if (!user) return;
+  const handleSave = async () => {
+    const user = getAuth().currentUser;
+    if (!user) return;
 
-      const ref = doc(db, "users", user.uid, "books", book.isbn);
-      await setDoc(ref, {
-        totalPages,
-        readPages,
-        summary,
-        updatedAt: new Date().toISOString(),
-      }, { merge: true });
-    };
-    saveBookData();
-  }, [totalPages, readPages, summary, book]);
+    const ref = doc(db, "users", user.uid, "books", book.isbn);
+    await setDoc(ref, {
+      totalPages,
+      readPages,
+      summary,
+      updatedAt: new Date().toISOString(),
+    }, { merge: true });
+
+    alert("저장되었습니다!");
+  };
 
   return (
     <div className="relative bg-white p-6 rounded-xl shadow space-y-6">
@@ -124,6 +123,16 @@ export default function BookCard({ book, onDelete }: BookCardProps) {
         </div>
         <ProgressBar value={progress} label="진행률" />
       </section>
+
+      {/* 저장 버튼 */}
+      <div className="flex justify-end">
+        <button
+          onClick={handleSave}
+          className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded"
+        >
+          저장
+        </button>
+      </div>
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { getAuth } from "firebase/auth";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "../utils/firebase";
+import ReadingMissionList from "./ReadingMissionList"; // 미션 리스트 연결
 import FriendTab from "./FriendTap";
 
 export default function MyPage() {
@@ -29,20 +30,21 @@ export default function MyPage() {
         const fetchedNickname = data.nickname || user.email || "";
         setNickname(fetchedNickname);
         setInputNickname(fetchedNickname);
-        setPoints(data.totalPoints || 0);
+        setPoints(data.totalPoints || 0); // ✅ 포인트 초기화
       }
     };
     fetchUser();
   }, []);
 
-  const handleUpdateNickname = async () => {
+  const updatePoints = async (newPoints: number) => {
     const user = getAuth().currentUser;
     if (!user) return;
+    setPoints(newPoints);
+    await setDoc(doc(db, "users", user.uid), { totalPoints: newPoints }, { merge: true });
+  };
 
-    const ref = doc(db, "users", user.uid);
-    await setDoc(ref, { nickname: inputNickname }, { merge: true });
-    setNickname(inputNickname);
-    setEditing(false);
+  const handleMissionReward = (reward: number) => {
+    updatePoints(points + reward);
   };
 
   const getRankName = (points: number): string => {
@@ -90,7 +92,14 @@ export default function MyPage() {
                 onChange={(e) => setInputNickname(e.target.value)}
               />
               <button
-                onClick={handleUpdateNickname}
+                onClick={async () => {
+                  const user = getAuth().currentUser;
+                  if (!user) return;
+                  const ref = doc(db, "users", user.uid);
+                  await setDoc(ref, { nickname: inputNickname }, { merge: true });
+                  setNickname(inputNickname);
+                  setEditing(false);
+                }}
                 className="bg-blue-500 text-white px-3 py-1 rounded"
               >
                 저장
@@ -132,6 +141,20 @@ export default function MyPage() {
         <p className="text-sm text-right text-gray-500">
           다음 등급까지 {getNextRankPoint(points)}p
         </p>
+        <div className="flex gap-2 mt-2">
+          <button
+            className="px-4 py-1 bg-blue-500 text-white text-sm rounded"
+            onClick={() => updatePoints(points + 100)}
+          >
+            +100 포인트
+          </button>
+          <button
+            className="px-4 py-1 bg-red-500 text-white text-sm rounded"
+            onClick={() => updatePoints(Math.max(0, points - 100))}
+          >
+            -100 포인트
+          </button>
+        </div>
       </section>
 
       <div className="flex gap-2">
@@ -151,7 +174,7 @@ export default function MyPage() {
 
       <div>
         {tab === "friend" && <FriendTab />}
-        {tab === "history" && <div>내 독서 기록 준비 중...</div>}
+        {tab === "history" && <ReadingMissionList onReward={handleMissionReward} />}
       </div>
     </div>
   );

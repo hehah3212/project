@@ -71,13 +71,19 @@ export default function Home() {
         <div className="flex justify-end gap-2">
           <button
             onClick={() => setView("main")}
-            className="bg-blue-100 hover:bg-blue-200 px-4 py-1 rounded"
+            className={`px-4 py-1 rounded font-semibold transition ${view === "main"
+                ? "bg-blue-600 text-white"
+                : "bg-gray-200 text-gray-800 hover:bg-gray-300"
+              }`}
           >
             홈
           </button>
           <button
             onClick={() => setView("mypage")}
-            className="bg-gray-200 hover:bg-gray-300 px-4 py-1 rounded"
+            className={`px-4 py-1 rounded font-semibold transition ${view === "mypage"
+                ? "bg-blue-600 text-white"
+                : "bg-gray-200 text-gray-800 hover:bg-gray-300"
+              }`}
           >
             내 정보
           </button>
