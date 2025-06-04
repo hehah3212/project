@@ -146,6 +146,7 @@ export default function ReadingMissionList({ onReward }: Props) {
       {/* 미션 추가 폼 */}
       <div className="bg-white p-4 rounded-xl shadow space-y-2">
         <h4 className="font-semibold">➕ 새 미션 추가</h4>
+
         <input
           type="text"
           placeholder="미션 제목"
@@ -153,6 +154,7 @@ export default function ReadingMissionList({ onReward }: Props) {
           onChange={(e) => setTitle(e.target.value)}
           className="w-full border px-2 py-1 rounded"
         />
+
         <div className="flex gap-2">
           <input
             type="date"
@@ -167,22 +169,31 @@ export default function ReadingMissionList({ onReward }: Props) {
             className="border px-2 py-1 rounded w-full"
           />
         </div>
+
+        {/* ⬇ 이 부분이 수정된 핵심 부분 */}
         <div className="flex gap-2">
-          <input
-            type="number"
-            value={goal}
-            onChange={(e) => setGoal(Number(e.target.value))}
-            placeholder="목표 페이지"
-            className="border px-2 py-1 rounded w-full"
-          />
-          <input
-            type="number"
-            value={reward}
-            onChange={(e) => setReward(Number(e.target.value))}
-            placeholder="보상 포인트"
-            className="border px-2 py-1 rounded w-full"
-          />
+          <div className="flex flex-col w-full">
+            <label className="text-sm text-gray-600 mb-1">🎯 목표 페이지 수</label>
+            <input
+              type="number"
+              value={goal}
+              onChange={(e) => setGoal(Number(e.target.value))}
+              placeholder="예: 100"
+              className="border px-2 py-1 rounded"
+            />
+          </div>
+          <div className="flex flex-col w-full">
+            <label className="text-sm text-gray-600 mb-1">🏅 보상 포인트</label>
+            <input
+              type="number"
+              value={reward}
+              onChange={(e) => setReward(Number(e.target.value))}
+              placeholder="예: 100"
+              className="border px-2 py-1 rounded"
+            />
+          </div>
         </div>
+
         <button
           onClick={addMission}
           className="w-full bg-blue-500 text-white text-sm py-1 rounded"
