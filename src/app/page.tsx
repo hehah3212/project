@@ -10,6 +10,10 @@ import ProgressBar from "./components/ProgressBar";
 import Header from "./components/Header";
 import RankingCard from "./components/RankingCard";
 import MyPage from "./components/MyPage";
+import ReadingMissionList from "./components/ReadingMissionList";
+import { getAuth } from "firebase/auth";
+import { doc, getDoc, updateDoc, deleteDoc } from "firebase/firestore";
+import { db } from "./utils/firebase";
 
 export default function Home() {
   const router = useRouter();
@@ -56,11 +60,38 @@ export default function Home() {
     setShowSearch(false);
   };
 
-  const handleDeleteBook = (isbn: string) => {
+  const handleReadingIncrease = (delta: number) => {
+    console.log("📤 dispatchEvent - delta:", delta);
+    const event = new CustomEvent("reading-progress", { detail: delta });
+    window.dispatchEvent(event);
+  };
+
+  const handleDeleteBook = async (isbn: string) => {
     const updated = bookList.filter((b) => b.isbn !== isbn);
     setBookList(updated);
-    localStorage.setItem(BOOK_LIST_KEY, JSON.stringify(updated));
+    localStorage.setItem("book-list", JSON.stringify(updated));
     localStorage.removeItem(`reading-${isbn}`);
+
+    if (!uid) return;
+
+    try {
+      await deleteDoc(doc(db, "users", uid, "books", isbn));
+    } catch (err: any) {
+      alert("Firestore 삭제 실패: " + err.message);
+    }
+  };
+
+  const handleMissionReward = async (reward: number) => {
+    const auth = getAuth();
+    const user = auth.currentUser;
+    if (!user) return;
+
+    const ref = doc(db, "users", user.uid);
+    const snap = await getDoc(ref);
+    const current = snap.exists() ? snap.data().point || 0 : 0;
+
+    await updateDoc(ref, { point: current + reward });
+    console.log(`🎉 ${reward} 포인트 지급 완료`);
   };
 
   return (
@@ -71,19 +102,21 @@ export default function Home() {
         <div className="flex justify-end gap-2">
           <button
             onClick={() => setView("main")}
-            className={`px-4 py-1 rounded font-semibold transition ${view === "main"
+            className={`px-4 py-1 rounded font-semibold transition ${
+              view === "main"
                 ? "bg-blue-600 text-white"
                 : "bg-gray-200 text-gray-800 hover:bg-gray-300"
-              }`}
+            }`}
           >
             홈
           </button>
           <button
             onClick={() => setView("mypage")}
-            className={`px-4 py-1 rounded font-semibold transition ${view === "mypage"
+            className={`px-4 py-1 rounded font-semibold transition ${
+              view === "mypage"
                 ? "bg-blue-600 text-white"
                 : "bg-gray-200 text-gray-800 hover:bg-gray-300"
-              }`}
+            }`}
           >
             내 정보
           </button>
@@ -104,16 +137,25 @@ export default function Home() {
                     📘 책 추가
                   </button>
                 </div>
+
                 <div className="bg-white p-6 rounded-2xl shadow space-y-2">
                   <h2 className="font-semibold text-lg mb-2">📈 오늘의 독서 / 목표</h2>
                   <ProgressBar value={50} label="오늘의 독서량" />
                   <ProgressBar value={80} label="주간 목표 달성률" />
                 </div>
+
+                <ReadingMissionList
+                  showForm={false}
+                  onlyActive={true}
+                  onReward={handleMissionReward}
+                />
               </div>
+
               <div className="w-full lg:w-[300px] xl:w-[360px]">
                 <ChartCard />
               </div>
             </div>
+
             <div className="flex flex-col lg:flex-row gap-6">
               <div className="w-full lg:w-[300px]">
                 <RankingCard />
@@ -130,12 +172,14 @@ export default function Home() {
                         key={book.isbn}
                         book={book}
                         onDelete={handleDeleteBook}
+                        onReadIncrease={handleReadingIncrease}
                       />
                     ))
                   )}
                 </div>
               </div>
             </div>
+
             {showSearch && (
               <div className="fixed top-20 left-1/2 -translate-x-1/2 w-full max-w-3xl bg-white p-4 rounded-xl shadow z-50">
                 <div className="flex justify-between items-center mb-2">

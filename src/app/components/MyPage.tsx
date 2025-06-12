@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getAuth } from "firebase/auth";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { getAuth, onAuthStateChanged } from "firebase/auth";
+import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "../utils/firebase";
-import ReadingMissionList from "./ReadingMissionList"; // 미션 리스트 연결
+import ReadingMissionList from "./ReadingMissionList";
 import FriendTab from "./FriendTap";
 
 export default function MyPage() {
@@ -14,33 +14,37 @@ export default function MyPage() {
   const [points, setPoints] = useState(0);
   const [email, setEmail] = useState("");
   const [tab, setTab] = useState<"friend" | "history">("friend");
+  const [userUid, setUserUid] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchUser = async () => {
-      const auth = getAuth();
-      const user = auth.currentUser;
-      if (!user) return;
+    const auth = getAuth();
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        setUserUid(user.uid);
+        setEmail(user.email || "");
 
-      setEmail(user.email || "");
-
-      const ref = doc(db, "users", user.uid);
-      const snap = await getDoc(ref);
-      if (snap.exists()) {
-        const data = snap.data();
-        const fetchedNickname = data.nickname || user.email || "";
-        setNickname(fetchedNickname);
-        setInputNickname(fetchedNickname);
-        setPoints(data.totalPoints || 0); // ✅ 포인트 초기화
+        const ref = doc(db, "users", user.uid);
+        const snap = await getDoc(ref);
+        if (snap.exists()) {
+          const data = snap.data();
+          const fetchedNickname = data.nickname || user.email || "";
+          setNickname(fetchedNickname);
+          setInputNickname(fetchedNickname);
+          setPoints(data.point || 0);
+        }
       }
-    };
-    fetchUser();
+    });
+
+    return () => unsubscribe();
   }, []);
 
+  // ✅ setDoc 사용으로 문서가 없을 때 자동 생성됨
   const updatePoints = async (newPoints: number) => {
-    const user = getAuth().currentUser;
-    if (!user) return;
+    if (!userUid) return;
+    const ref = doc(db, "users", userUid);
+    await setDoc(ref, { point: newPoints }, { merge: true }); // 🔥 문서 없을 시 생성
     setPoints(newPoints);
-    await setDoc(doc(db, "users", user.uid), { totalPoints: newPoints }, { merge: true });
+    console.log("🔥 포인트 저장됨:", newPoints);
   };
 
   const handleMissionReward = (reward: number) => {
@@ -96,7 +100,7 @@ export default function MyPage() {
                   const user = getAuth().currentUser;
                   if (!user) return;
                   const ref = doc(db, "users", user.uid);
-                  await setDoc(ref, { nickname: inputNickname }, { merge: true });
+                  await updateDoc(ref, { nickname: inputNickname });
                   setNickname(inputNickname);
                   setEditing(false);
                 }}
@@ -174,7 +178,9 @@ export default function MyPage() {
 
       <div>
         {tab === "friend" && <FriendTab />}
-        {tab === "history" && <ReadingMissionList onReward={handleMissionReward} />}
+        {tab === "history" && (
+          <ReadingMissionList showForm={true} onReward={handleMissionReward} />
+        )}
       </div>
     </div>
   );

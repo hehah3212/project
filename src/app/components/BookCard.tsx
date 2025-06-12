@@ -11,11 +11,13 @@ import { db } from "../utils/firebase";
 type BookCardProps = {
   book: Book;
   onDelete?: (isbn: string) => void;
+  onReadIncrease?: (delta: number) => void;
 };
 
-export default function BookCard({ book, onDelete }: BookCardProps) {
+export default function BookCard({ book, onDelete, onReadIncrease }: BookCardProps) {
   const [totalPages, setTotalPages] = useState<number>(320);
   const [readPages, setReadPages] = useState<number>(0);
+  const [prevPages, setPrevPages] = useState<number>(0);
   const [summary, setSummary] = useState<string>("");
 
   const safeReadPages = Math.min(readPages, totalPages);
@@ -31,6 +33,7 @@ export default function BookCard({ book, onDelete }: BookCardProps) {
           const data = snap.data();
           setTotalPages(data.totalPages || 320);
           setReadPages(data.readPages || 0);
+          setPrevPages(data.readPages || 0);
           setSummary(data.summary || "");
         }
       }
@@ -42,13 +45,23 @@ export default function BookCard({ book, onDelete }: BookCardProps) {
     const user = getAuth().currentUser;
     if (!user) return;
 
+    const delta = readPages - prevPages;
+    if (delta > 0 && onReadIncrease) {
+      onReadIncrease(delta);
+      setPrevPages(readPages); // ✅ 저장 시에만 delta 반영
+    }
+
     const ref = doc(db, "users", user.uid, "books", book.isbn);
-    await setDoc(ref, {
-      totalPages,
-      readPages,
-      summary,
-      updatedAt: new Date().toISOString(),
-    }, { merge: true });
+    await setDoc(
+      ref,
+      {
+        totalPages,
+        readPages,
+        summary,
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
 
     alert("저장되었습니다!");
   };
@@ -56,12 +69,17 @@ export default function BookCard({ book, onDelete }: BookCardProps) {
   return (
     <div className="relative bg-white p-6 rounded-xl shadow space-y-6">
       {onDelete && (
-        <button
-          onClick={() => onDelete(book.isbn)}
-          className="absolute top-2 right-2 text-sm text-red-500 hover:text-red-700"
+        <span
+          onClick={() => {
+            const confirmDelete = confirm("정말 이 책을 삭제하시겠습니까?");
+            if (confirmDelete) {
+              onDelete?.(book.isbn);
+            }
+          }}
+          className="absolute top-2 right-2 text-sm text-red-500 hover:text-red-700 cursor-pointer"
         >
-          ✕ 삭제
-        </button>
+          X 삭제
+        </span>
       )}
 
       {/* 책 정보 */}
@@ -110,7 +128,11 @@ export default function BookCard({ book, onDelete }: BookCardProps) {
             type="number"
             className="border rounded p-2 w-28"
             value={readPages}
-            onChange={(e) => setReadPages(Number(e.target.value))}
+            onChange={(e) => {
+              const newVal = Number(e.target.value);
+              const safeVal = Math.min(newVal, totalPages);
+              setReadPages(safeVal);
+            }}
           />
           <span className="text-sm text-gray-500">/</span>
           <input
