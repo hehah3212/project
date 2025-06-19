@@ -2,26 +2,35 @@
 
 import { useEffect, useState } from "react";
 import Image from "next/image";
-import ProgressBar from "./ProgressBar";
 import { Book } from "./BookSearch";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
-import { doc, setDoc, getDoc } from "firebase/firestore";
+import { doc, getDoc } from "firebase/firestore";
 import { db } from "../utils/firebase";
+import { useRouter } from "next/navigation";
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Tooltip,
+} from "chart.js";
+import { Bar } from "react-chartjs-2";
+
+ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip);
 
 type BookCardProps = {
   book: Book;
   onDelete?: (isbn: string) => void;
-  onReadIncrease?: (delta: number) => void;
+  onReadIncrease: (delta: number) => void
 };
 
-export default function BookCard({ book, onDelete, onReadIncrease }: BookCardProps) {
+export default function BookCard({ book, onDelete }: BookCardProps) {
   const [totalPages, setTotalPages] = useState<number>(320);
   const [readPages, setReadPages] = useState<number>(0);
-  const [prevPages, setPrevPages] = useState<number>(0);
   const [summary, setSummary] = useState<string>("");
+  const router = useRouter();
 
   const safeReadPages = Math.min(readPages, totalPages);
-  const progress = totalPages > 0 ? (safeReadPages / totalPages) * 100 : 0;
 
   useEffect(() => {
     const auth = getAuth();
@@ -33,7 +42,6 @@ export default function BookCard({ book, onDelete, onReadIncrease }: BookCardPro
           const data = snap.data();
           setTotalPages(data.totalPages || 320);
           setReadPages(data.readPages || 0);
-          setPrevPages(data.readPages || 0);
           setSummary(data.summary || "");
         }
       }
@@ -41,57 +49,75 @@ export default function BookCard({ book, onDelete, onReadIncrease }: BookCardPro
     return () => unsubscribe();
   }, [book]);
 
-  const handleSave = async () => {
-    const user = getAuth().currentUser;
-    if (!user) return;
-
-    const delta = readPages - prevPages;
-    if (delta > 0 && onReadIncrease) {
-      onReadIncrease(delta);
-      setPrevPages(readPages); // ✅ 저장 시에만 delta 반영
-    }
-
-    const ref = doc(db, "users", user.uid, "books", book.isbn);
-    await setDoc(
-      ref,
+  // Chart.js 그래프 설정
+  const barData = {
+    labels: [""],
+    datasets: [
       {
-        totalPages,
-        readPages,
-        summary,
-        updatedAt: new Date().toISOString(),
+        label: "읽은 페이지",
+        data: [safeReadPages],
+        backgroundColor: "#3b82f6", // indigo-500
+        borderRadius: 6,
+        barThickness: 20,
       },
-      { merge: true }
-    );
+      {
+        label: "남은 페이지",
+        data: [Math.max(totalPages - safeReadPages, 0)],
+        backgroundColor: "#e5e7eb", // gray-200
+        borderRadius: 6,
+        barThickness: 20,
+      },
+    ],
+  };
 
-    alert("저장되었습니다!");
+  const barOptions = {
+    indexAxis: "y" as const,
+    responsive: true,
+    maintainAspectRatio: false,
+    layout: {
+      padding: 0,
+    },
+    plugins: {
+      legend: { display: false },
+      tooltip: { enabled: true },
+    },
+    scales: {
+      x: {
+        stacked: true,
+        max: totalPages,
+        beginAtZero: true,
+        display: false,
+      },
+      y: {
+        stacked: true,
+        display: false,
+      },
+    },
   };
 
   return (
-    <div className="relative bg-white p-6 rounded-xl shadow space-y-6">
+    <div className="relative bg-white p-6 rounded-2xl shadow-lg space-y-6 w-[320px] min-w-[300px]">
       {onDelete && (
-        <span
+        <button
           onClick={() => {
             const confirmDelete = confirm("정말 이 책을 삭제하시겠습니까?");
-            if (confirmDelete) {
-              onDelete?.(book.isbn);
-            }
+            if (confirmDelete) onDelete(book.isbn);
           }}
-          className="absolute top-2 right-2 text-sm text-red-500 hover:text-red-700 cursor-pointer"
+          className="absolute top-3 right-3 text-sm text-red-500 hover:text-red-700"
         >
-          X 삭제
-        </span>
+          ✕
+        </button>
       )}
 
-      {/* 책 정보 */}
-      <section className="flex gap-6">
-        <div className="w-32 h-48 bg-gray-200 rounded overflow-hidden">
+      <div className="flex gap-4">
+        <div className="w-24 h-36 bg-gray-200 rounded overflow-hidden flex-shrink-0">
           {book.thumbnail ? (
             <Image
               src={book.thumbnail}
               alt={book.title}
-              width={128}
-              height={192}
-              className="object-cover"
+              width={96}
+              height={144}
+              className="object-cover w-full h-full"
             />
           ) : (
             <div className="flex items-center justify-center h-full text-sm text-gray-500">
@@ -99,60 +125,38 @@ export default function BookCard({ book, onDelete, onReadIncrease }: BookCardPro
             </div>
           )}
         </div>
-        <div className="flex-1">
-          <h2 className="text-2xl font-bold">{book.title}</h2>
-          <p className="text-gray-500">{book.authors.join(", ")}</p>
-          <p className="text-sm text-gray-400">{book.publisher}</p>
-          <p className="text-sm text-gray-400">총 {totalPages}페이지</p>
-          <p className="text-sm text-gray-400">2025.04.15 ~ 2025.05.10</p>
+        <div className="flex-1 space-y-1">
+          <h2 className="text-lg font-bold text-gray-800 line-clamp-2">{book.title}</h2>
+          <p className="text-sm text-gray-500">{book.authors.join(", ")}</p>
+          <p className="text-xs text-gray-400">{book.publisher}</p>
+          <p className="text-xs text-gray-400">총 {totalPages} 페이지</p>
         </div>
-      </section>
+      </div>
 
-      {/* 요약 */}
-      <section>
-        <h3 className="font-semibold mb-1">📌 한 문장 요약</h3>
-        <textarea
-          className="w-full border rounded p-2 text-sm"
-          rows={6}
-          placeholder="책을 한 문장으로 요약해보세요"
-          value={summary}
-          onChange={(e) => setSummary(e.target.value)}
-        />
-      </section>
+      <div className="text-sm text-gray-600">
+        <p className="mb-1 font-semibold">📌 한 문장 요약</p>
+        <p className="text-gray-700 bg-gray-50 p-2 rounded min-h-[48px]">
+          {summary || "(작성된 요약이 없습니다)"}
+        </p>
+      </div>
 
-      {/* 읽은 양 */}
-      <section>
-        <h3 className="font-semibold mb-1">📖 읽은 양</h3>
-        <div className="flex items-center gap-2 mb-2">
-          <input
-            type="number"
-            className="border rounded p-2 w-28"
-            value={readPages}
-            onChange={(e) => {
-              const newVal = Number(e.target.value);
-              const safeVal = Math.min(newVal, totalPages);
-              setReadPages(safeVal);
-            }}
-          />
-          <span className="text-sm text-gray-500">/</span>
-          <input
-            type="number"
-            className="border rounded p-2 w-28"
-            value={totalPages}
-            onChange={(e) => setTotalPages(Number(e.target.value))}
-          />
-          <span className="text-sm text-gray-500">페이지</span>
+      {/* ✅ 진행률 */}
+      <div>
+        <p className="text-sm font-semibold mb-1">📖 진행률</p>
+        <div className="h-[30px] w-full">
+          <Bar data={barData} options={barOptions} />
         </div>
-        <ProgressBar value={progress} label="진행률" />
-      </section>
+        <p className="text-xs text-gray-500 text-right mt-1">
+          {readPages}p / {totalPages}p
+        </p>
+      </div>
 
-      {/* 저장 버튼 */}
-      <div className="flex justify-end">
+      <div className="pt-2">
         <button
-          onClick={handleSave}
-          className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded"
+          onClick={() => router.push(`/books/${book.isbn}`)}
+          className="w-full bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-full text-sm font-semibold"
         >
-          저장
+          독후활동 하러가기
         </button>
       </div>
     </div>

@@ -1,58 +1,62 @@
-// src/app/components/RankingCard.tsx
 "use client";
 
 import { useEffect, useState } from "react";
-import { collection, getDocs, orderBy, query, limit } from "firebase/firestore";
+import { getFirestore, collection, query, orderBy, getDocs } from "firebase/firestore";
+import { getAuth } from "firebase/auth";
 import { db } from "../utils/firebase";
 
-type UserRanking = {
-  nickname: string;
-  booksReadCount: number;
-};
-
 export default function RankingCard() {
-  const [rankings, setRankings] = useState<UserRanking[]>([]);
+  const [rankings, setRankings] = useState<any[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const currentUser = getAuth().currentUser;
 
   useEffect(() => {
     const fetchRankings = async () => {
-      const q = query(
-        collection(db, "users"),
-        orderBy("booksReadCount", "desc"),
-        limit(10)
-      );
-      const snapshot = await getDocs(q);
-      const result: UserRanking[] = snapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          nickname: data.nickname || "익명",
-          booksReadCount: data.booksReadCount || 0
-        };
-      });;
-      setRankings(result);
+      const ref = collection(db, "users");
+      const q = query(ref, orderBy("booksReadCount", "desc"));
+      const snap = await getDocs(q);
+      const list = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      setRankings(list);
     };
-
     fetchRankings();
   }, []);
 
+  const filtered = rankings.filter((user) =>
+    user.nickname?.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   return (
-    <div className="bg-white p-4 rounded-xl shadow space-y-2">
-      <h2 className="font-bold text-lg mb-2">🏆 친구 랭킹</h2>
-      {rankings.length === 0 ? (
-        <p className="text-sm text-gray-400">불러오는 중...</p>
-      ) : (
-        <ol className="space-y-1">
-          {rankings.map((user, index) => (
-            <li key={index} className="flex justify-between">
-              <span>
-                {index + 1}. {user.nickname}
-              </span>
-              <span className="text-sm text-gray-500">
-                {user.booksReadCount}권
-              </span>
-            </li>
-          ))}
-        </ol>
-      )}
+    <div className="bg-white p-6 rounded-2xl shadow-md space-y-6">
+      <h2 className="text-xl font-bold text-gray-800">🏆 친구 랭킹</h2>
+
+      <input
+        type="text"
+        placeholder="닉네임 검색"
+        value={searchQuery}
+        onChange={(e) => setSearchQuery(e.target.value)}
+        className="w-full border rounded px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+      />
+
+      <ol className="space-y-3">
+        {filtered.map((user, index) => (
+          <li
+            key={user.id}
+            className="bg-gray-50 p-4 rounded-xl flex justify-between items-center"
+          >
+            <div>
+              <p className="font-semibold text-base">
+                {index + 1}. {user.nickname || user.email}
+              </p>
+              <p className="text-sm text-gray-500">
+                {user.booksReadCount || 0}권 읽음
+              </p>
+            </div>
+            {user.id === currentUser?.uid && (
+              <span className="text-xs text-blue-500">(나)</span>
+            )}
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }

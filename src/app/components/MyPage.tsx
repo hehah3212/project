@@ -38,11 +38,10 @@ export default function MyPage() {
     return () => unsubscribe();
   }, []);
 
-  // ✅ setDoc 사용으로 문서가 없을 때 자동 생성됨
   const updatePoints = async (newPoints: number) => {
     if (!userUid) return;
     const ref = doc(db, "users", userUid);
-    await setDoc(ref, { point: newPoints }, { merge: true }); // 🔥 문서 없을 시 생성
+    await setDoc(ref, { point: newPoints }, { merge: true });
     setPoints(newPoints);
     console.log("🔥 포인트 저장됨:", newPoints);
   };
@@ -82,16 +81,17 @@ export default function MyPage() {
   };
 
   return (
-    <div className="p-6 max-w-2xl mx-auto space-y-6">
-      <h2 className="text-2xl font-bold">📘 내 정보</h2>
+    <div className="p-6 max-w-4xl mx-auto space-y-10">
+      <h2 className="text-2xl font-bold text-gray-800">📘 내 정보</h2>
 
-      <section className="bg-white p-4 rounded-xl shadow space-y-2">
-        <p className="font-medium text-gray-600">닉네임</p>
-        <div className="flex gap-2 items-center">
+      {/* 닉네임 카드 */}
+      <section className="bg-white p-6 rounded-2xl shadow-md space-y-3">
+        <p className="text-sm text-gray-500 font-medium">닉네임</p>
+        <div className="flex gap-3 items-center">
           {editing ? (
             <>
               <input
-                className="border rounded px-2 py-1 flex-1"
+                className="border rounded px-4 py-2 flex-1 focus:outline-none focus:ring-2 focus:ring-yellow-300"
                 value={inputNickname}
                 onChange={(e) => setInputNickname(e.target.value)}
               />
@@ -104,7 +104,7 @@ export default function MyPage() {
                   setNickname(inputNickname);
                   setEditing(false);
                 }}
-                className="bg-blue-500 text-white px-3 py-1 rounded"
+                className="bg-yellow-400 hover:bg-yellow-500 text-white px-4 py-2 rounded"
               >
                 저장
               </button>
@@ -113,14 +113,14 @@ export default function MyPage() {
                   setEditing(false);
                   setInputNickname(nickname);
                 }}
-                className="text-sm text-gray-500"
+                className="text-sm text-gray-400 hover:underline"
               >
                 취소
               </button>
             </>
           ) : (
             <>
-              <span className="font-medium text-lg">{nickname || email || "이름 없음"}</span>
+              <span className="font-semibold text-lg text-gray-800">{nickname || email || "이름 없음"}</span>
               <button
                 onClick={() => setEditing(true)}
                 className="text-sm text-blue-500 hover:underline"
@@ -132,18 +132,18 @@ export default function MyPage() {
         </div>
       </section>
 
-      <section className="bg-white p-4 rounded-xl shadow space-y-2">
-        <p className="text-lg font-medium">📊 포인트: {points}점</p>
-        <p className="text-sm text-gray-600">등급: {getRankName(points)}</p>
-        <p className="text-sm text-gray-600">닉네임: {nickname || email || "이름 없음"}</p>
+      {/* 포인트 등급 카드 */}
+      <section className="bg-white p-6 rounded-2xl shadow-md space-y-3">
+        <p className="text-lg font-bold text-gray-800">🏅 포인트: <span className="text-yellow-500">{points}p</span></p>
+        <p className="text-sm text-gray-700">등급: <span className="font-semibold">{getRankName(points)}</span></p>
         <div className="h-4 w-full bg-gray-200 rounded-full overflow-hidden">
           <div
-            className="h-full bg-yellow-200 rounded-full"
+            className="h-full bg-yellow-300 rounded-full transition-all duration-300"
             style={{ width: `${progressToNext()}%` }}
           ></div>
         </div>
         <p className="text-sm text-right text-gray-500">
-          다음 등급까지 {getNextRankPoint(points)}p
+          다음 등급까지 {getNextRankPoint(points)}p 남음
         </p>
         <div className="flex gap-2 mt-2">
           <button
@@ -161,25 +161,34 @@ export default function MyPage() {
         </div>
       </section>
 
+      {/* 탭 버튼 */}
       <div className="flex gap-2">
         <button
-          className={`px-4 py-2 rounded ${tab === "friend" ? "bg-blue-100" : "bg-gray-100"} hover:bg-gray-200`}
+          className={`px-4 py-2 rounded font-semibold border ${
+            tab === "friend" ? "bg-blue-600 text-white" : "bg-white text-gray-700 border-gray-300 hover:bg-gray-100"
+          }`}
           onClick={() => setTab("friend")}
         >
           친구 관리
         </button>
         <button
-          className={`px-4 py-2 rounded ${tab === "history" ? "bg-blue-100" : "bg-gray-100"} hover:bg-gray-200`}
+          className={`px-4 py-2 rounded font-semibold border ${
+            tab === "history" ? "bg-blue-600 text-white" : "bg-white text-gray-700 border-gray-300 hover:bg-gray-100"
+          }`}
           onClick={() => setTab("history")}
         >
           내 독서 기록
         </button>
       </div>
 
+      {/* 탭 내용 */}
       <div>
         {tab === "friend" && <FriendTab />}
         {tab === "history" && (
-          <ReadingMissionList showForm={true} onReward={handleMissionReward} />
+          <section className="bg-white p-6 rounded-2xl shadow-md space-y-4">
+            <h2 className="text-lg font-bold text-gray-800">📖 내 독서 미션</h2>
+            <ReadingMissionList showForm={true} onReward={handleMissionReward} />
+          </section>
         )}
       </div>
     </div>

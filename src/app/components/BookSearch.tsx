@@ -34,49 +34,54 @@ export default function BookSearch({ onBookSelect }: BookSearchProps) {
   };
 
   return (
-    <div className="relative w-full">
+    <div className="space-y-6 w-full">
       {/* 검색 입력창 */}
-      <div className="flex gap-2">
+      <div className="flex gap-4 w-full">
         <input
           type="text"
           placeholder="책 제목을 검색하세요"
-          className="border px-3 py-2 rounded w-full"
+          className="border px-5 py-3 h-12 text-base rounded w-full focus:outline-none focus:ring-2 focus:ring-yellow-300"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              handleSearch();
-            }
+            if (e.key === "Enter") handleSearch();
           }}
         />
         <button
           onClick={handleSearch}
-          className="bg-yellow-400 hover:bg-yellow-500 px-4 py-2 rounded text-white shadow"
+          className="flex items-center justify-center gap-1 bg-yellow-400 hover:bg-yellow-500 text-white px-6 py-3 rounded shadow text-base whitespace-nowrap min-w-[90px] h-12"
         >
-          검색
+          🔍 검색
         </button>
       </div>
 
       {/* 검색 결과 리스트 */}
       {(books.length > 0 || loading) && (
-        <div className="absolute top-full mt-2 w-full bg-white border rounded-xl shadow-lg max-h-[300px] overflow-y-auto z-50">
-          {loading && <p className="p-4 text-sm text-gray-400">🔍 검색 중...</p>}
+        <div className="bg-white border rounded-xl shadow max-h-[300px] overflow-y-auto w-full">
+          {loading && (
+            <p className="p-4 text-sm text-gray-400">🔍 검색 중...</p>
+          )}
 
-          <ul className="space-y-2 p-2">
+          <ul className="divide-y">
             {books.map((book) => (
               <li
                 key={book.isbn}
-                className="flex gap-3 p-2 rounded hover:bg-gray-50 cursor-pointer"
-                onClick={() => onBookSelect(book)}
+                className="flex gap-4 p-4 cursor-pointer hover:bg-gray-50"
+                onClick={() =>
+                  onBookSelect({
+                    ...book,
+                    isbn: book.isbn.split(" ")[0], // ✅ 공백 제거하고 첫 번째 ISBN만 사용
+                  })
+                }
               >
                 <img
                   src={book.thumbnail || "/no-image.png"}
                   alt={book.title}
-                  className="w-12 h-16 object-cover rounded"
+                  className="w-16 h-24 object-cover rounded shadow"
                 />
-                <div className="flex-1">
-                  <p className="font-semibold text-gray-800">{book.title}</p>
-                  <p className="text-sm text-gray-500">{book.authors.join(", ")}</p>
+                <div className="flex-1 space-y-1">
+                  <p className="font-semibold text-gray-800 line-clamp-2">{book.title}</p>
+                  <p className="text-sm text-gray-600">{book.authors.join(", ")}</p>
                   <p className="text-xs text-gray-400">{book.publisher}</p>
                 </div>
               </li>

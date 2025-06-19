@@ -12,7 +12,7 @@ import RankingCard from "./components/RankingCard";
 import MyPage from "./components/MyPage";
 import ReadingMissionList from "./components/ReadingMissionList";
 import { getAuth } from "firebase/auth";
-import { doc, getDoc, updateDoc, deleteDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc, deleteDoc, setDoc } from "firebase/firestore";
 import { db } from "./utils/firebase";
 
 export default function Home() {
@@ -49,19 +49,40 @@ export default function Home() {
     }
   }, []);
 
-  const handleBookSelect = (book: Book) => {
+  const handleBookSelect = async (book: Book) => {
+    const isbn = book.isbn.split(" ")[0];
+    const cleanedBook = { ...book, isbn };
+
     setBookList((prev) => {
-      const exists = prev.find((b) => b.isbn === book.isbn);
+      const exists = prev.find((b) => b.isbn === isbn);
       if (exists) return prev;
-      const updated = [...prev, book];
+      const updated = [...prev, cleanedBook];
       localStorage.setItem(BOOK_LIST_KEY, JSON.stringify(updated));
       return updated;
     });
+
+    const auth = getAuth();
+    const user = auth.currentUser;
+    if (!user) return;
+
+    const ref = doc(db, "users", user.uid, "books", isbn);
+    await setDoc(
+      ref,
+      {
+        ...cleanedBook,
+        readPages: 0,
+        totalPages: 320,
+        summary: "",
+        thoughts: "",
+        createdAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+
     setShowSearch(false);
   };
 
   const handleReadingIncrease = (delta: number) => {
-    console.log("📤 dispatchEvent - delta:", delta);
     const event = new CustomEvent("reading-progress", { detail: delta });
     window.dispatchEvent(event);
   };
@@ -73,7 +94,6 @@ export default function Home() {
     localStorage.removeItem(`reading-${isbn}`);
 
     if (!uid) return;
-
     try {
       await deleteDoc(doc(db, "users", uid, "books", isbn));
     } catch (err: any) {
@@ -91,32 +111,23 @@ export default function Home() {
     const current = snap.exists() ? snap.data().point || 0 : 0;
 
     await updateDoc(ref, { point: current + reward });
-    console.log(`🎉 ${reward} 포인트 지급 완료`);
   };
 
   return (
-    <main className="min-h-screen bg-gray-100">
+    <main className="min-h-screen bg-gray-50">
       <Header />
 
-      <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
-        <div className="flex justify-end gap-2">
+      <div className="max-w-7xl mx-auto px-4 pt-32 space-y-12">
+        <div className="flex justify-end gap-3">
           <button
             onClick={() => setView("main")}
-            className={`px-4 py-1 rounded font-semibold transition ${
-              view === "main"
-                ? "bg-blue-600 text-white"
-                : "bg-gray-200 text-gray-800 hover:bg-gray-300"
-            }`}
+            className={`px-4 py-2 rounded-full text-sm font-semibold transition border ${view === "main" ? "bg-indigo-600 text-white" : "bg-white text-gray-700 border-gray-300 hover:bg-gray-100"}`}
           >
             홈
           </button>
           <button
             onClick={() => setView("mypage")}
-            className={`px-4 py-1 rounded font-semibold transition ${
-              view === "mypage"
-                ? "bg-blue-600 text-white"
-                : "bg-gray-200 text-gray-800 hover:bg-gray-300"
-            }`}
+            className={`px-4 py-2 rounded-full text-sm font-semibold transition border ${view === "mypage" ? "bg-indigo-600 text-white" : "bg-white text-gray-700 border-gray-300 hover:bg-gray-100"}`}
           >
             내 정보
           </button>
@@ -124,68 +135,69 @@ export default function Home() {
 
         {view === "main" && (
           <>
-            <div className="flex flex-col-reverse lg:flex-row lg:items-start gap-6">
-              <div className="flex-1 space-y-4">
-                <div className="bg-white p-6 rounded-2xl shadow flex justify-between items-center">
-                  <p className="text-gray-600 text-sm">
-                    📚 추가된 책: {bookList.length}권
-                  </p>
-                  <button
-                    onClick={() => setShowSearch((prev) => !prev)}
-                    className="bg-yellow-400 hover:bg-yellow-500 text-white font-semibold px-4 py-2 rounded shadow"
-                  >
-                    📘 책 추가
-                  </button>
-                </div>
-
-                <div className="bg-white p-6 rounded-2xl shadow space-y-2">
-                  <h2 className="font-semibold text-lg mb-2">📈 오늘의 독서 / 목표</h2>
+            <section className="space-y-6">
+              <h2 className="text-xl font-bold text-gray-800">📊 독서 통계</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <ChartCard />
+                <div className="bg-white p-6 rounded-2xl shadow space-y-4">
+                  <h3 className="text-base font-semibold text-gray-700">📈 오늘의 목표</h3>
                   <ProgressBar value={50} label="오늘의 독서량" />
-                  <ProgressBar value={80} label="주간 목표 달성률" />
                 </div>
+                <div className="bg-white p-6 rounded-2xl shadow space-y-4">
+                  <h3 className="text-base font-semibold text-gray-700">🏆 실시간 랭킹</h3>
+                  <RankingCard />
+                </div>
+              </div>
+            </section>
 
+            <section className="mt-12">
+              <div className="bg-white p-6 rounded-2xl shadow">
                 <ReadingMissionList
                   showForm={false}
                   onlyActive={true}
                   onReward={handleMissionReward}
                 />
               </div>
+            </section>
 
-              <div className="w-full lg:w-[300px] xl:w-[360px]">
-                <ChartCard />
+            <section className="bg-white p-6 rounded-2xl shadow-inner mt-12">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold text-gray-800">
+                  📘 추가된 책: {bookList.length}권
+                </h3>
+                <button
+                  onClick={() => setShowSearch((prev) => !prev)}
+                  className="bg-yellow-400 hover:bg-yellow-500 text-white px-4 py-2 rounded-full"
+                >
+                  책 추가
+                </button>
               </div>
-            </div>
-
-            <div className="flex flex-col lg:flex-row gap-6">
-              <div className="w-full lg:w-[300px]">
-                <RankingCard />
+              <div className="flex gap-4 overflow-x-auto">
+                {bookList.length === 0 ? (
+                  <div className="text-gray-400 text-center w-full">
+                    📚 책을 추가하고 독서를 시작해보세요!
+                  </div>
+                ) : (
+                  bookList.map((book) => (
+                    <BookCard
+                      key={book.isbn}
+                      book={book}
+                      onDelete={handleDeleteBook}
+                      onReadIncrease={handleReadingIncrease}
+                    />
+                  ))
+                )}
               </div>
-              <div className="flex-1 overflow-x-auto">
-                <div className="flex gap-4 w-max">
-                  {bookList.length === 0 ? (
-                    <div className="bg-white p-6 rounded-xl shadow text-center text-gray-400">
-                      📚 책을 추가하고 독서를 시작해보세요!
-                    </div>
-                  ) : (
-                    bookList.map((book) => (
-                      <BookCard
-                        key={book.isbn}
-                        book={book}
-                        onDelete={handleDeleteBook}
-                        onReadIncrease={handleReadingIncrease}
-                      />
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
+            </section>
 
             {showSearch && (
-              <div className="fixed top-20 left-1/2 -translate-x-1/2 w-full max-w-3xl bg-white p-4 rounded-xl shadow z-50">
-                <div className="flex justify-between items-center mb-2">
-                  <p className="font-semibold text-gray-700">📚 책 검색</p>
+              <div className="fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-6xl bg-white px-10 py-6 shadow-lg border-b z-50 rounded-b-xl">
+                <div className="flex justify-between items-center mb-5">
+                  <h4 className="text-xl font-bold text-yellow-500 flex items-center gap-2">
+                    📖 책 검색
+                  </h4>
                   <button
-                    className="text-sm text-gray-500 hover:text-black"
+                    className="text-sm text-gray-400 hover:text-black"
                     onClick={() => setShowSearch(false)}
                   >
                     ✕ 닫기
