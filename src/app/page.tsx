@@ -49,6 +49,8 @@ export default function Home() {
     }
   }, []);
 
+
+
   const handleBookSelect = async (book: Book) => {
     const isbn = book.isbn.split(" ")[0];
     const cleanedBook = { ...book, isbn };
@@ -152,11 +154,24 @@ export default function Home() {
 
             <section className="mt-12">
               <div className="bg-white p-6 rounded-2xl shadow">
-                <ReadingMissionList
-                  showForm={false}
-                  onlyActive={true}
-                  onReward={handleMissionReward}
-                />
+                {view === "main" && (
+                  <ReadingMissionList
+                    showForm={false}
+                    onlyActive={true}
+                    onReward={handleMissionReward}
+                  />
+                )}
+
+                {/* 숨겨진 상태로 항상 마운트 */}
+                {view !== "main" && (
+                  <section className="hidden">
+                    <ReadingMissionList
+                      showForm={false}
+                      onlyActive={true}
+                      onReward={handleMissionReward}
+                    />
+                  </section>
+                )}
               </div>
             </section>
 

@@ -146,18 +146,6 @@ export default function MyPage() {
           다음 등급까지 {getNextRankPoint(points)}p 남음
         </p>
         <div className="flex gap-2 mt-2">
-          <button
-            className="px-4 py-1 bg-blue-500 text-white text-sm rounded"
-            onClick={() => updatePoints(points + 100)}
-          >
-            +100 포인트
-          </button>
-          <button
-            className="px-4 py-1 bg-red-500 text-white text-sm rounded"
-            onClick={() => updatePoints(Math.max(0, points - 100))}
-          >
-            -100 포인트
-          </button>
         </div>
       </section>
 

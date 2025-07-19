@@ -6,25 +6,15 @@ type ProgressBarProps = {
   max?:number;
 };
 
-export default function ProgressCard() {
+export default function ProgressBar({ value, label }: ProgressBarProps) {
   return (
-    <div className="bg-white rounded-2xl shadow-md p-6 flex flex-col gap-4">
-      <h2 className="text-lg font-bold text-gray-800">📈 오늘의 목표</h2>
-
-      <div className="space-y-2">
-        <div>
-          <p className="text-sm text-gray-600 mb-1">오늘의 독서량</p>
-          <div className="w-full bg-gray-200 h-3 rounded-full">
-            <div className="bg-indigo-500 h-3 rounded-full w-1/2 transition-all duration-300"></div>
-          </div>
-        </div>
-
-        <div>
-          <p className="text-sm text-gray-600 mb-1">주간 목표 달성률</p>
-          <div className="w-full bg-gray-200 h-3 rounded-full">
-            <div className="bg-indigo-500 h-3 rounded-full w-4/5 transition-all duration-300"></div>
-          </div>
-        </div>
+    <div className="w-full">
+      {label && <p className="mb-1 text-sm font-medium">{label}</p>}
+      <div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
+        <div
+          className="bg-blue-600 h-2.5 rounded-full"
+          style={{ width: `${value}%` }}
+        ></div>
       </div>
     </div>
   );

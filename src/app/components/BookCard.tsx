@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import { Book } from "./BookSearch";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "../utils/firebase";
 import { useRouter } from "next/navigation";
 import {
@@ -21,12 +21,13 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip);
 type BookCardProps = {
   book: Book;
   onDelete?: (isbn: string) => void;
-  onReadIncrease: (delta: number) => void
+  onReadIncrease?: (delta: number) => void;
 };
 
-export default function BookCard({ book, onDelete }: BookCardProps) {
+export default function BookCard({ book, onDelete, onReadIncrease }: BookCardProps) {
   const [totalPages, setTotalPages] = useState<number>(320);
   const [readPages, setReadPages] = useState<number>(0);
+  const [prevPages, setPrevPages] = useState<number>(0); // ✅ 추가
   const [summary, setSummary] = useState<string>("");
   const router = useRouter();
 
@@ -42,6 +43,7 @@ export default function BookCard({ book, onDelete }: BookCardProps) {
           const data = snap.data();
           setTotalPages(data.totalPages || 320);
           setReadPages(data.readPages || 0);
+          setPrevPages(data.readPages || 0); // ✅ 이전 페이지 수 저장
           setSummary(data.summary || "");
         }
       }
@@ -49,21 +51,47 @@ export default function BookCard({ book, onDelete }: BookCardProps) {
     return () => unsubscribe();
   }, [book]);
 
-  // Chart.js 그래프 설정
+  const handleSave = async () => {
+    const user = getAuth().currentUser;
+    if (!user) return;
+
+    const delta = readPages - prevPages;
+    if (delta > 0 && onReadIncrease) {
+      onReadIncrease(delta); // ✅ 콜백 호출
+      setPrevPages(readPages); // ✅ 상태 동기화
+    }
+
+    const ref = doc(db, "users", user.uid, "books", book.isbn);
+    await setDoc(
+      ref,
+      {
+        totalPages,
+        readPages,
+        summary,
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+
+    alert("저장되었습니다!");
+    window.dispatchEvent(new CustomEvent("reading-progress-sync"));
+  };
+
+  // 차트 데이터
   const barData = {
     labels: [""],
     datasets: [
       {
         label: "읽은 페이지",
         data: [safeReadPages],
-        backgroundColor: "#3b82f6", // indigo-500
+        backgroundColor: "#3b82f6",
         borderRadius: 6,
         barThickness: 20,
       },
       {
         label: "남은 페이지",
         data: [Math.max(totalPages - safeReadPages, 0)],
-        backgroundColor: "#e5e7eb", // gray-200
+        backgroundColor: "#e5e7eb",
         borderRadius: 6,
         barThickness: 20,
       },
@@ -140,7 +168,6 @@ export default function BookCard({ book, onDelete }: BookCardProps) {
         </p>
       </div>
 
-      {/* ✅ 진행률 */}
       <div>
         <p className="text-sm font-semibold mb-1">📖 진행률</p>
         <div className="h-[30px] w-full">
@@ -157,6 +184,12 @@ export default function BookCard({ book, onDelete }: BookCardProps) {
           className="w-full bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-full text-sm font-semibold"
         >
           독후활동 하러가기
+        </button>
+        <button
+          onClick={handleSave}
+          className="mt-2 w-full bg-gray-100 hover:bg-gray-200 text-gray-800 px-4 py-2 rounded-full text-sm font-semibold"
+        >
+          저장
         </button>
       </div>
     </div>

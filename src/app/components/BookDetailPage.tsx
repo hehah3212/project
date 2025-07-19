@@ -27,10 +27,10 @@ export default function BookDetailPage() {
   const [thoughts, setThoughts] = useState("");
   const [readPages, setReadPages] = useState(0);
   const [totalPages, setTotalPages] = useState(320);
+  const [prevPages, setPrevPages] = useState(0); // ✅ 추가
 
   const safeReadPages = Math.min(readPages, totalPages);
 
-  // 📦 로컬에서 기본 책 정보 불러오기
   useEffect(() => {
     const localBooks = localStorage.getItem("book-list");
     if (localBooks) {
@@ -40,7 +40,6 @@ export default function BookDetailPage() {
     }
   }, [cleanId]);
 
-  // 🔒 Firestore에서 읽은양, 요약 등 불러오기
   useEffect(() => {
     const auth = getAuth();
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -52,8 +51,9 @@ export default function BookDetailPage() {
         setSummary(data.summary || "");
         setThoughts(data.thoughts || "");
         setReadPages(data.readPages || 0);
+        setPrevPages(data.readPages || 0); // ✅ 저장 전 값 보관
         setTotalPages(data.totalPages || 320);
-        setBook((prev: any) => prev || data); // Firestore에서 썸네일 등도 복원
+        setBook((prev: any) => prev || data);
       }
     });
     return () => unsubscribe();
@@ -62,6 +62,15 @@ export default function BookDetailPage() {
   const handleSave = async () => {
     const user = getAuth().currentUser;
     if (!user || !cleanId) return;
+
+    // ✅ delta 계산 및 이벤트 전송
+    const delta = readPages - prevPages;
+    console.log("[DEBUG] dispatch delta:", delta);
+    if (delta > 0) {
+      window.dispatchEvent(new CustomEvent("reading-progress", { detail: delta }));
+      localStorage.setItem("pending-delta", delta.toString());
+      setPrevPages(readPages);
+    }
 
     const ref = doc(db, "users", user.uid, "books", cleanId);
     await updateDoc(ref, {
@@ -73,11 +82,11 @@ export default function BookDetailPage() {
     });
 
     alert("저장되었습니다!");
+    window.dispatchEvent(new CustomEvent("reading-progress-sync"));
   };
 
   if (!book) return <div className="p-4 text-gray-500">로딩 중...</div>;
 
-  // 📊 차트 데이터 설정
   const barData = {
     labels: [""],
     datasets: [
@@ -143,7 +152,7 @@ export default function BookDetailPage() {
         </div>
       </div>
 
-      {/* ✅ 진행률 */}
+      {/* 📖 진행률 */}
       <div>
         <label className="block text-sm font-semibold text-gray-700 mb-1">📖 읽은 페이지</label>
         <div className="flex gap-2 items-center mb-2">
