@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { Book } from "./components/BookSearch";
 import BookSearch from "./components/BookSearch";
 import BookCard from "./components/BookCard";
+import FavoritePicker from "./components/FavoritePage";
 import ChartCard from "./components/ChartCard";
 import ProgressBar from "./components/ProgressBar";
 import Header from "./components/Header";
@@ -21,7 +22,7 @@ export default function Home() {
   const [showSearch, setShowSearch] = useState(false);
   const [bookList, setBookList] = useState<Book[]>([]);
   const [view, setView] = useState<"main" | "mypage">("main");
-
+  const [showFavModal, setShowFavModal] = useState(false);
   const BOOK_LIST_KEY = "book-list";
 
   useEffect(() => {
@@ -180,12 +181,20 @@ export default function Home() {
                 <h3 className="text-lg font-semibold text-gray-800">
                   📘 추가된 책: {bookList.length}권
                 </h3>
-                <button
-                  onClick={() => setShowSearch((prev) => !prev)}
-                  className="bg-yellow-400 hover:bg-yellow-500 text-white px-4 py-2 rounded-full"
-                >
-                  책 추가
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => router.push("/favorites")}
+                    className="bg-indigo-600 text-white px-4 py-2 rounded-full"
+                  >
+                    즐겨찾기 보기
+                  </button>
+                  <button
+                    onClick={() => setShowSearch((prev) => !prev)}
+                    className="bg-yellow-400 hover:bg-yellow-500 text-white px-4 py-2 rounded-full"
+                  >
+                    책 추가
+                  </button>
+                </div>
               </div>
               <div className="flex gap-4 overflow-x-auto">
                 {bookList.length === 0 ? (
@@ -223,6 +232,7 @@ export default function Home() {
             )}
           </>
         )}
+
 
         {view === "mypage" && <MyPage />}
       </div>

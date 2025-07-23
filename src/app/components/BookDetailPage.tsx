@@ -190,16 +190,6 @@ export default function BookDetailPage() {
         />
       </div>
 
-      {/* 느낀점 */}
-      <div>
-        <label className="block text-sm font-semibold mb-1">💡 느낀점</label>
-        <textarea
-          value={thoughts}
-          onChange={(e) => setThoughts(e.target.value)}
-          className="w-full border rounded p-3 text-sm"
-          rows={4}
-        />
-      </div>
 
       {/* 버튼 */}
       <div className="flex justify-between pt-4">

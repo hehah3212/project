@@ -22,9 +22,10 @@ type BookCardProps = {
   book: Book;
   onDelete?: (isbn: string) => void;
   onReadIncrease?: (delta: number) => void;
+  onClick?: () => void;
 };
 
-export default function BookCard({ book, onDelete, onReadIncrease }: BookCardProps) {
+export default function BookCard({ book, onDelete, onReadIncrease, onClick }: BookCardProps) {
   const [totalPages, setTotalPages] = useState<number>(320);
   const [readPages, setReadPages] = useState<number>(0);
   const [prevPages, setPrevPages] = useState<number>(0); // ✅ 추가
@@ -161,12 +162,6 @@ export default function BookCard({ book, onDelete, onReadIncrease }: BookCardPro
         </div>
       </div>
 
-      <div className="text-sm text-gray-600">
-        <p className="mb-1 font-semibold">📌 한 문장 요약</p>
-        <p className="text-gray-700 bg-gray-50 p-2 rounded min-h-[48px]">
-          {summary || "(작성된 요약이 없습니다)"}
-        </p>
-      </div>
 
       <div>
         <p className="text-sm font-semibold mb-1">📖 진행률</p>
@@ -178,20 +173,30 @@ export default function BookCard({ book, onDelete, onReadIncrease }: BookCardPro
         </p>
       </div>
 
-      <div className="pt-2">
-        <button
-          onClick={() => router.push(`/books/${book.isbn}`)}
-          className="w-full bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-full text-sm font-semibold"
-        >
-          독후활동 하러가기
-        </button>
-        <button
-          onClick={handleSave}
-          className="mt-2 w-full bg-gray-100 hover:bg-gray-200 text-gray-800 px-4 py-2 rounded-full text-sm font-semibold"
-        >
-          저장
-        </button>
-      </div>
+      {onClick ? (
+        // “추가” 전용 버튼
+        <div className="pt-2">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onClick();
+            }}
+            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-full text-sm font-semibold"
+          >
+            추가하기
+          </button>
+        </div>
+      ) : (
+        <div className="pt-2">
+          <button
+            onClick={(e) => { e.stopPropagation(); router.push(`/books/${book.isbn}`); }}
+            className="w-full bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-full text-sm font-semibold"
+          >
+            독후활동 하러가기
+          </button>
+        </div>
+      )}
     </div>
+
   );
 }
