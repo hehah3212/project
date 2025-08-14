@@ -117,10 +117,10 @@ export default function Home() {
   };
 
   return (
-    <main className="min-h-screen bg-gray-50">
+    <main className="bg-gray-50 min-h-screen">
       <Header />
 
-      <div className="max-w-7xl mx-auto px-4 pt-32 space-y-12">
+      <div className="max-w-7xl mx-auto px-4 pt-4 md:pt-6 pb-10 space-y-8">
         <div className="flex justify-end gap-3">
           <button
             onClick={() => setView("main")}
@@ -139,15 +139,15 @@ export default function Home() {
         {view === "main" && (
           <>
             <section className="space-y-6">
-              <h2 className="text-xl font-bold text-gray-800">📊 독서 통계</h2>
+              <h2 className="text-xl font-bold text-gray-800">독서 통계</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <ChartCard />
                 <div className="bg-white p-6 rounded-2xl shadow space-y-4">
                   <h3 className="text-base font-semibold text-gray-700">📈 오늘의 목표</h3>
-                  <ProgressBar value={50} label="오늘의 독서량" />
+                  <ProgressBar value={50} label="독서 완료 횟수" />
+                  <ProgressBar value={30} label="개인 미션 완수량"/>
                 </div>
                 <div className="bg-white p-6 rounded-2xl shadow space-y-4">
-                  <h3 className="text-base font-semibold text-gray-700">🏆 실시간 랭킹</h3>
                   <RankingCard />
                 </div>
               </div>
@@ -184,7 +184,14 @@ export default function Home() {
                 <div className="flex gap-2">
                   <button
                     onClick={() => router.push("/favorites")}
-                    className="bg-indigo-600 text-white px-4 py-2 rounded-full"
+                    className="
+                        bg-indigo-600 
+                        hover:bg-indigo-700 
+                        text-white 
+                        px-4 py-2 
+                        rounded-full 
+                        transition-colors duration-200 ease-in-out
+                      "
                   >
                     즐겨찾기 보기
                   </button>
