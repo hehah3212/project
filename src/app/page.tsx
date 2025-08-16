@@ -5,74 +5,101 @@ import { useRouter } from "next/navigation";
 import type { Book } from "./components/BookSearch";
 import BookSearch from "./components/BookSearch";
 import BookCard from "./components/BookCard";
-import FavoritePicker from "./components/FavoritePage";
 import ChartCard from "./components/ChartCard";
 import ProgressBar from "./components/ProgressBar";
 import Header from "./components/Header";
 import RankingCard from "./components/RankingCard";
 import MyPage from "./components/MyPage";
 import ReadingMissionList from "./components/ReadingMissionList";
-import { getAuth } from "firebase/auth";
-import { doc, getDoc, updateDoc, deleteDoc, setDoc } from "firebase/firestore";
+
+import { getAuth, onAuthStateChanged } from "firebase/auth";
+import {
+  doc, getDoc, updateDoc, deleteDoc, setDoc,
+  getDocs, collection
+} from "firebase/firestore";
 import { db } from "./utils/firebase";
 
 export default function Home() {
   const router = useRouter();
   const [uid, setUid] = useState<string | null>(null);
-  const [showSearch, setShowSearch] = useState(false);
+  const [authReady, setAuthReady] = useState(false); // ✅ 추가
   const [bookList, setBookList] = useState<Book[]>([]);
   const [view, setView] = useState<"main" | "mypage">("main");
-  const [showFavModal, setShowFavModal] = useState(false);
-  const BOOK_LIST_KEY = "book-list";
+  const [showSearch, setShowSearch] = useState(false);
 
-  useEffect(() => {
-    const raw = localStorage.getItem("user");
-    try {
-      const user = JSON.parse(raw || "{}");
-      if (!user.uid) {
-        router.push("/login");
-      } else {
-        setUid(user.uid);
-      }
-    } catch {
-      router.push("/login");
-    }
-  }, [router]);
+  const bookKey = (id?: string | null) => (id ? `book-list:${id}` : "book-list");
 
+  // 🔐 인증 상태 관찰 (localStorage 의존 제거)
   useEffect(() => {
-    const saved = localStorage.getItem(BOOK_LIST_KEY);
-    if (saved) {
-      try {
-        setBookList(JSON.parse(saved));
-      } catch {
-        console.error("책 목록 불러오기 실패");
-      }
-    }
+    const unsub = onAuthStateChanged(getAuth(), (u) => {
+      setUid(u?.uid ?? null);
+      setAuthReady(true);              // ✅ 최초 응답 후에만 가드 동작
+    });
+    return () => unsub();
   }, []);
 
+  // ❗ authReady 후에만 /login 리다이렉트 → 루프 방지
+  useEffect(() => {
+    if (!authReady) return;
+    if (!uid) router.replace("/login");
+  }, [authReady, uid, router]);
 
+  // 📥 UID 정해지면 Firestore ➜ 로컬 캐시 순으로 로드
+  useEffect(() => {
+    if (!uid) return;
+    (async () => {
+      try {
+        const snap = await getDocs(collection(db, "users", uid, "books"));
+        if (!snap.empty) {
+          const fromFs: Book[] = snap.docs.map((d) => {
+            const data = d.data() as any;
+            return {
+              isbn: data.isbn || d.id,
+              title: data.title,
+              authors: data.authors || (data.author ? [data.author] : []),
+              thumbnail: data.thumbnail,
+              publisher: data.publisher,
+            } as Book;
+          });
+          setBookList(fromFs);
+          localStorage.setItem(bookKey(uid), JSON.stringify(fromFs));
+          localStorage.removeItem("book-list"); // 레거시 정리
+          return;
+        }
+      } catch (e) {
+        console.warn("Firestore 로드 실패, 로컬 캐시 사용", e);
+      }
+      try {
+        const cached = localStorage.getItem(bookKey(uid)) || localStorage.getItem("book-list");
+        setBookList(cached ? JSON.parse(cached) : []);
+        localStorage.removeItem("book-list");
+      } catch {
+        setBookList([]);
+      }
+    })();
+  }, [uid]);
 
+  // ✅ 책 추가
   const handleBookSelect = async (book: Book) => {
+    const currentUid = uid || getAuth().currentUser?.uid;
+    if (!currentUid) {
+      alert("로그인 상태를 확인해주세요.");
+      return;
+    }
     const isbn = book.isbn.split(" ")[0];
-    const cleanedBook = { ...book, isbn };
+    const cleaned: Book = { ...book, isbn };
 
     setBookList((prev) => {
-      const exists = prev.find((b) => b.isbn === isbn);
-      if (exists) return prev;
-      const updated = [...prev, cleanedBook];
-      localStorage.setItem(BOOK_LIST_KEY, JSON.stringify(updated));
+      if (prev.some((b) => b.isbn === isbn)) return prev;
+      const updated = [...prev, cleaned];
+      localStorage.setItem(bookKey(currentUid), JSON.stringify(updated));
       return updated;
     });
 
-    const auth = getAuth();
-    const user = auth.currentUser;
-    if (!user) return;
-
-    const ref = doc(db, "users", user.uid, "books", isbn);
     await setDoc(
-      ref,
+      doc(db, "users", currentUid, "books", isbn),
       {
-        ...cleanedBook,
+        ...cleaned,
         readPages: 0,
         totalPages: 320,
         summary: "",
@@ -81,22 +108,23 @@ export default function Home() {
       },
       { merge: true }
     );
-
     setShowSearch(false);
   };
 
   const handleReadingIncrease = (delta: number) => {
-    const event = new CustomEvent("reading-progress", { detail: delta });
-    window.dispatchEvent(event);
+    window.dispatchEvent(new CustomEvent("reading-progress", { detail: delta }));
   };
 
+  // ✅ 책 삭제
   const handleDeleteBook = async (isbn: string) => {
+    if (!uid) return;
     const updated = bookList.filter((b) => b.isbn !== isbn);
     setBookList(updated);
-    localStorage.setItem("book-list", JSON.stringify(updated));
-    localStorage.removeItem(`reading-${isbn}`);
+    localStorage.setItem(bookKey(uid), JSON.stringify(updated));
 
-    if (!uid) return;
+    localStorage.removeItem(`reading-${isbn}`);
+    localStorage.removeItem(`reading:${uid}:${isbn}`);
+
     try {
       await deleteDoc(doc(db, "users", uid, "books", isbn));
     } catch (err: any) {
@@ -104,17 +132,25 @@ export default function Home() {
     }
   };
 
+  // 미션 리워드 → 포인트 증가
   const handleMissionReward = async (reward: number) => {
-    const auth = getAuth();
-    const user = auth.currentUser;
-    if (!user) return;
-
-    const ref = doc(db, "users", user.uid);
+    const currentUid = uid || getAuth().currentUser?.uid;
+    if (!currentUid) return;
+    const ref = doc(db, "users", currentUid);
     const snap = await getDoc(ref);
-    const current = snap.exists() ? snap.data().point || 0 : 0;
-
-    await updateDoc(ref, { point: current + reward });
+    const cur = snap.exists() ? (snap.data() as any).point || 0 : 0;
+    await updateDoc(ref, { point: cur + reward });
   };
+
+  // 인증 확정 전엔 빈 화면로딩 방지
+  if (!authReady) {
+    return (
+      <main className="bg-gray-50 min-h-screen">
+        <Header />
+        <div className="max-w-7xl mx-auto px-4 pt-10 text-gray-400">인증 확인 중…</div>
+      </main>
+    );
+  }
 
   return (
     <main className="bg-gray-50 min-h-screen">
@@ -124,13 +160,21 @@ export default function Home() {
         <div className="flex justify-end gap-3">
           <button
             onClick={() => setView("main")}
-            className={`px-4 py-2 rounded-full text-sm font-semibold transition border ${view === "main" ? "bg-indigo-600 text-white" : "bg-white text-gray-700 border-gray-300 hover:bg-gray-100"}`}
+            className={`px-4 py-2 rounded-full text-sm font-semibold transition border ${
+              view === "main"
+                ? "bg-indigo-600 text-white"
+                : "bg-white text-gray-700 border-gray-300 hover:bg-gray-100"
+            }`}
           >
             홈
           </button>
           <button
             onClick={() => setView("mypage")}
-            className={`px-4 py-2 rounded-full text-sm font-semibold transition border ${view === "mypage" ? "bg-indigo-600 text-white" : "bg-white text-gray-700 border-gray-300 hover:bg-gray-100"}`}
+            className={`px-4 py-2 rounded-full text-sm font-semibold transition border ${
+              view === "mypage"
+                ? "bg-indigo-600 text-white"
+                : "bg-white text-gray-700 border-gray-300 hover:bg-gray-100"
+            }`}
           >
             내 정보
           </button>
@@ -145,7 +189,7 @@ export default function Home() {
                 <div className="bg-white p-6 rounded-2xl shadow space-y-4">
                   <h3 className="text-base font-semibold text-gray-700">📈 오늘의 목표</h3>
                   <ProgressBar value={50} label="독서 완료 횟수" />
-                  <ProgressBar value={30} label="개인 미션 완수량"/>
+                  <ProgressBar value={30} label="개인 미션 완수량" />
                 </div>
                 <div className="bg-white p-6 rounded-2xl shadow space-y-4">
                   <RankingCard />
@@ -155,24 +199,11 @@ export default function Home() {
 
             <section className="mt-12">
               <div className="bg-white p-6 rounded-2xl shadow">
-                {view === "main" && (
-                  <ReadingMissionList
-                    showForm={false}
-                    onlyActive={true}
-                    onReward={handleMissionReward}
-                  />
-                )}
-
-                {/* 숨겨진 상태로 항상 마운트 */}
-                {view !== "main" && (
-                  <section className="hidden">
-                    <ReadingMissionList
-                      showForm={false}
-                      onlyActive={true}
-                      onReward={handleMissionReward}
-                    />
-                  </section>
-                )}
+                <ReadingMissionList
+                  showForm={false}
+                  onlyActive={true}
+                  onReward={handleMissionReward}
+                />
               </div>
             </section>
 
@@ -184,14 +215,7 @@ export default function Home() {
                 <div className="flex gap-2">
                   <button
                     onClick={() => router.push("/favorites")}
-                    className="
-                        bg-indigo-600 
-                        hover:bg-indigo-700 
-                        text-white 
-                        px-4 py-2 
-                        rounded-full 
-                        transition-colors duration-200 ease-in-out
-                      "
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-full transition"
                   >
                     즐겨찾기 보기
                   </button>
@@ -239,7 +263,6 @@ export default function Home() {
             )}
           </>
         )}
-
 
         {view === "mypage" && <MyPage />}
       </div>
