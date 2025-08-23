@@ -1,11 +1,17 @@
-// src/app/components/BookCard.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { Book } from "./BookSearch";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc, setDoc, deleteDoc } from "firebase/firestore";
+import {
+  doc,
+  getDoc,
+  setDoc,
+  deleteDoc,
+  collection,
+  getDocs,
+} from "firebase/firestore";
 import { useRouter } from "next/navigation";
 import {
   Chart as ChartJS,
@@ -42,19 +48,20 @@ export default function BookCard({
   const [isFavorite, setIsFavorite] = useState(false);
   const [userUid, setUserUid] = useState<string | null>(null);
 
-  // ⭐ 별점 상태
-  const [rating, setRating] = useState<number>(0);
-  const [hoverRating, setHoverRating] = useState<number>(0);
+  // ⭐ 공개 감상평 평균/개수
+  const [avgRating, setAvgRating] = useState<number | null>(null);
+  const [reviewCount, setReviewCount] = useState<number>(0);
+  const hasReviews = useMemo(() => (reviewCount ?? 0) > 0, [reviewCount]);
 
   const router = useRouter();
   const safeReadPages = Math.min(readPages, totalPages);
 
   useEffect(() => {
-    const auth = getAuth();
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    const unsub = onAuthStateChanged(getAuth(), async (user) => {
       if (!user) return;
       setUserUid(user.uid);
 
+      // 내 책 진행/요약 불러오기
       const bookRef = doc(db, "users", user.uid, "books", book.isbn);
       const snap = await getDoc(bookRef);
       if (snap.exists()) {
@@ -63,16 +70,45 @@ export default function BookCard({
         setReadPages(data.readPages || 0);
         setPrevPages(data.readPages || 0);
         setSummary(data.summary || "");
-        setRating(data.rating || 0); // ⭐ 저장된 별점 불러오기
       }
 
+      // 즐겨찾기 여부
       const favRef = doc(db, "users", user.uid, "favorites", book.isbn);
       const favSnap = await getDoc(favRef);
       setIsFavorite(favSnap.exists());
     });
 
-    return () => unsubscribe();
+    return () => unsub();
   }, [book]);
+
+  // 공개 감상평 평균 별점 불러오기 (books/{isbn}/reviews)
+  useEffect(() => {
+    (async () => {
+      try {
+        const ref = collection(db, "books", book.isbn, "reviews");
+        const snap = await getDocs(ref);
+        if (snap.empty) {
+          setAvgRating(null);
+          setReviewCount(0);
+          return;
+        }
+        let total = 0;
+        let cnt = 0;
+        snap.docs.forEach((d) => {
+          const r = d.data()?.rating;
+          if (typeof r === "number" && r > 0) {
+            total += r;
+            cnt += 1;
+          }
+        });
+        setReviewCount(cnt);
+        setAvgRating(cnt > 0 ? total / cnt : null);
+      } catch {
+        setAvgRating(null);
+        setReviewCount(0);
+      }
+    })();
+  }, [book.isbn]);
 
   const toggleFavorite = async () => {
     if (!userUid) return;
@@ -92,18 +128,6 @@ export default function BookCard({
       });
       setIsFavorite(true);
     }
-  };
-
-  // ⭐ 별점 저장
-  const saveRating = async (value: number) => {
-    setRating(value);
-    if (!userUid) return;
-    const ref = doc(db, "users", userUid, "books", book.isbn);
-    await setDoc(
-      ref,
-      { rating: value, updatedAt: new Date().toISOString() },
-      { merge: true }
-    );
   };
 
   const barData = {
@@ -138,7 +162,7 @@ export default function BookCard({
     },
   };
 
-  // ⭐ 별 아이콘
+  // ⭐ 읽기 전용 별(평균 시각화)
   const Star = ({ filled }: { filled: boolean }) => (
     <svg
       viewBox="0 0 20 20"
@@ -150,31 +174,48 @@ export default function BookCard({
     </svg>
   );
 
-  const renderStars = () => {
-    const active = hoverRating || rating;
+  const renderAvgStars = () => {
+    const value = avgRating ?? 0;
+    const full = Math.round(value); // 간단히 반올림하여 채우기
     return (
-      <div className="flex items-center gap-1" role="radiogroup" aria-label="별점">
+      <div className="flex items-center gap-1" aria-label="평균 별점">
         {[1, 2, 3, 4, 5].map((n) => (
-          <button
-            key={n}
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              saveRating(n);
-            }}
-            onMouseEnter={() => setHoverRating(n)}
-            onMouseLeave={() => setHoverRating(0)}
-            role="radio"
-            aria-checked={rating === n}
-            title={`${n}점`}
-            className="focus:outline-none"
-          >
-            <Star filled={n <= active} />
-          </button>
+          <Star key={n} filled={n <= full} />
         ))}
-        <span className="ml-1 text-xs text-gray-500">{rating}/5</span>
+        {hasReviews ? (
+          <span className="ml-1 text-xs text-gray-600">
+            {value.toFixed(1)} ({reviewCount})
+          </span>
+        ) : (
+          <span className="ml-1 text-xs text-gray-400">감상평이 없습니다</span>
+        )}
       </div>
     );
+  };
+
+  const handleSave = async () => {
+    const user = getAuth().currentUser;
+    if (!user) return;
+
+    const delta = readPages - prevPages;
+    if (delta > 0 && onReadIncrease) {
+      onReadIncrease(delta);
+      setPrevPages(readPages); // ✅ 저장 시에만 delta 반영
+    }
+
+    const ref = doc(db, "users", user.uid, "books", book.isbn);
+    await setDoc(
+      ref,
+      {
+        totalPages,
+        readPages,
+        summary,
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+
+    alert("저장되었습니다!");
   };
 
   return (
@@ -209,13 +250,15 @@ export default function BookCard({
         </div>
 
         <div className="flex-1 space-y-1">
-          <h2 className="text-lg font-bold text-gray-800 line-clamp-2">{book.title}</h2>
+          <h2 className="text-lg font-bold text-gray-800 line-clamp-2">
+            {book.title}
+          </h2>
           <p className="text-sm text-gray-500">{book.authors.join(", ")}</p>
           <p className="text-xs text-gray-400">{book.publisher}</p>
           <p className="text-xs text-gray-400">총 {totalPages} 페이지</p>
 
-          {/* ⭐ 별점 UI (카드 상단 정보 옆) */}
-          {renderStars()}
+          {/* ⭐ 평균 별점 (읽기 전용) */}
+          {renderAvgStars()}
 
           <button
             onClick={(e) => {

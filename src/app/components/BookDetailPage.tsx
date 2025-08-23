@@ -64,6 +64,14 @@ export default function BookDetailPage() {
     [reviews, userUid]
   );
 
+  // 평균/개수(정수 별 표시용)
+  const [avgRating, setAvgRating] = useState<number | null>(null);
+  const [reviewCount, setReviewCount] = useState<number>(0);
+
+  // 목록 토글
+  const [expanded, setExpanded] = useState(false);
+  const INITIAL_COUNT = 3;
+
   // 개인 메모
   const [memos, setMemos] = useState<PrivateMemo[]>([]);
   const [memoText, setMemoText] = useState("");
@@ -115,20 +123,31 @@ export default function BookDetailPage() {
     })();
   }, [userUid, cleanId]);
 
-  // ---------- 공개 감상평 구독 ----------
+  // ---------- 공개 감상평 구독 + 평균/개수 계산(정수 별만 표시) ----------
   useEffect(() => {
     if (!cleanId) return;
-    const q = query(collection(db, "books", cleanId, "reviews"), orderBy("createdAt", "desc"));
+    const qy = query(collection(db, "books", cleanId, "reviews"), orderBy("createdAt", "desc"));
     const unsub = onSnapshot(
-      q,
+      qy,
       (snap) => {
         const rows: PublicReview[] = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
         setReviews(rows);
+
+        let sum = 0, cnt = 0;
+        rows.forEach(r => {
+          if (typeof r.rating === "number" && r.rating > 0) {
+            sum += r.rating;
+            cnt += 1;
+          }
+        });
+        setReviewCount(cnt);
+        setAvgRating(cnt ? sum / cnt : null);
       },
       (err) => {
-        // 로그아웃 전환 등 permission-denied는 무시
         // @ts-ignore
         if (err?.code !== "permission-denied") console.error("reviews onSnapshot:", err);
+        setReviewCount(0);
+        setAvgRating(null);
       }
     );
     return () => unsub();
@@ -168,7 +187,7 @@ export default function BookDetailPage() {
     return () => unsub();
   }, [userUid, cleanId]);
 
-  // ---------- 별 아이콘 ----------
+  // ---------- 별 아이콘(선택용 정수 별) ----------
   const Star = ({ filled }: { filled: boolean }) => (
     <svg viewBox="0 0 20 20" className={`w-6 h-6 ${filled ? "text-yellow-400" : "text-gray-300"}`} fill="currentColor">
       <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.1 3.385a1 1 0 00.95.69h3.556c.969 0 1.371 1.24.588 1.81l-2.876 2.09a1 1 0 00-.364 1.118l1.1 3.386c.3.92-.755 1.688-1.54 1.118l-2.876-2.09a1 1 0 00-1.176 0l-2.876 2.09c-.785.57-1.84-.198-1.54-1.118l1.1-3.386a1 1 0 00-.364-1.118L2.755 8.812c-.783-.57-.38-1.81.588-1.81h3.556a1 1 0 00.95-.69l1.2-3.385z"/>
@@ -295,6 +314,8 @@ export default function BookDetailPage() {
 
   if (!book) return <div className="p-4 text-gray-500">로딩 중...</div>;
 
+  const roundedAvg = avgRating !== null ? Math.round(avgRating) : null;
+
   return (
     <div className="max-w-7xl mx-auto p-12 bg-white shadow-xl rounded-2xl">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-16">
@@ -309,6 +330,20 @@ export default function BookDetailPage() {
               <h2 className="text-2xl font-bold text-gray-800">{book.title}</h2>
               <p className="text-sm text-gray-500">{Array.isArray(book.authors) ? book.authors.join(", ") : book.authors}</p>
               <p className="text-xs text-gray-400">{book.publisher}</p>
+
+              {/* 평균 별점 (정수 별만) */}
+              {roundedAvg !== null && reviewCount > 0 && (
+                <div className="flex items-center gap-2 mt-2">
+                  <div className="flex gap-[2px]">
+                    {[1,2,3,4,5].map(n => (
+                      <svg key={n} viewBox="0 0 20 20" className={`w-5 h-5 ${n <= roundedAvg ? "text-yellow-400" : "text-gray-300"}`} fill="currentColor">
+                        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.1 3.385a1 1 0 00.95.69h3.556c.969 0 1.371 1.24.588 1.81l-2.876 2.09a1 1 0 00-.364 1.118l1.1 3.386c.3.92-.755 1.688-1.54 1.118l-2.876-2.09a1 1 0 00-1.176 0l-2.876 2.09c-.785.57-1.84-.198-1.54-1.118l1.1-3.386a1 1 0 00-.364-1.118L2.755 8.812c-.783-.57-.38-1.81.588-1.81h3.556a1 1 0 00.95-.69l1.2-3.385z"/>
+                      </svg>
+                    ))}
+                  </div>
+                  <span className="text-sm text-gray-600">{roundedAvg}점 · {reviewCount}명</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -369,19 +404,31 @@ export default function BookDetailPage() {
               </div>
             </div>
 
-            {/* 공개 감상평 목록 */}
+            {/* 공개 감상평 목록 (기본 3개, 더보기/접기) */}
             <div className="mt-6 space-y-4">
-              <h4 className="text-sm text-gray-600">등록된 감상평 ({reviews.length})</h4>
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm text-gray-600">등록된 감상평 ({reviews.length})</h4>
+                {reviews.length > INITIAL_COUNT && (
+                  <button
+                    className="text-xs text-blue-600 hover:underline"
+                    onClick={() => setExpanded((v) => !v)}
+                  >
+                    {expanded ? "접기" : "더 보기"}
+                  </button>
+                )}
+              </div>
+
               {reviews.length === 0 && (
                 <p className="text-sm text-gray-400">아직 등록된 감상평이 없습니다.</p>
               )}
-              {reviews.map((r) => (
+
+              {(expanded ? reviews : reviews.slice(0, INITIAL_COUNT)).map((r) => (
                 <div key={r.id} className="border rounded-xl p-4 bg-gray-50/80 shadow-sm">
                   <div className="flex justify-between items-center">
                     <div className="text-xs text-gray-500">
                       {formatDate(r.createdAt)} · {r.nickname || r.uid.slice(0, 6)}
                     </div>
-                    {/* 별점 표시 */}
+                    {/* 정수 별점 표시 */}
                     <div className="text-yellow-400 text-sm">
                       {"★".repeat(Math.max(0, Math.min(5, r.rating || 0)))}
                       <span className="text-gray-300">
