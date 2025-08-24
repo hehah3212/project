@@ -75,7 +75,6 @@ export default function ReadingMissionList({
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (!user) return;
 
-
       setUserUid(user.uid);
       console.log("🔑 현재 로그인된 UID:", user.uid);
 
@@ -129,7 +128,7 @@ export default function ReadingMissionList({
   const updateMissionProgressFromReading = async (
     delta: number,
     uidParam?: string
-    ) => {
+  ) => {
     const uid = uidParam ?? userUid;
     if (!uid) return;
     console.log("[🚧 MissionList] update 호출, delta =", delta);
@@ -166,8 +165,6 @@ export default function ReadingMissionList({
       return updated;
     });
   };
-
-
 
   // ─── 새 미션 추가 ───────────────────────────────────────────────
   const addMission = async () => {
