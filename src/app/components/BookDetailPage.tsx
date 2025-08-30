@@ -1,23 +1,41 @@
-// src/app/books/BookDetailPage.tsx
 "use client";
 
 import { useParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import {
-  doc, getDoc, setDoc, deleteDoc,
-  collection, addDoc, onSnapshot, query, orderBy,
-  serverTimestamp
+  addDoc,
+  collection,
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  onSnapshot,
+  query,
+  orderBy,
+  serverTimestamp,
 } from "firebase/firestore";
 import { db } from "../utils/firebase";
 
-// (선택) 진행률 시각화 막대
+// chart.js (진행률 막대)
 import {
-  Chart as ChartJS, CategoryScale, LinearScale, BarElement, Tooltip,
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Tooltip,
 } from "chart.js";
 import { Bar } from "react-chartjs-2";
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip);
+
+/** ─────────────────────────────────────────────────────────────
+ *  임시 클라이언트 방어 규칙 (2단계: 서버 검증으로 이전 예정)
+ * ───────────────────────────────────────────────────────────── */
+const MIN_SESSION_SEC = 180;   // 최소 3분 이상만 인정
+const MAX_PAGES_PER_MIN = 5;   // ✅ 분당 최대 5p 인정
+const DAILY_PAGES_CAP = 300;   // 하루 누적 상한
 
 type PublicReview = {
   id: string;
@@ -37,111 +55,269 @@ type PrivateMemo = {
   createdAt?: any;
 };
 
+type BookData = {
+  title: string;
+  authors: string[];
+  thumbnail?: string;
+  publisher?: string;
+  totalPages: number;
+  readPages: number;
+  summary?: string;
+};
+
 export default function BookDetailPage() {
   const { id } = useParams();
-  const cleanId = decodeURIComponent(String(id)).split(" ")[0];
+  const isbn = decodeURIComponent(String(id)).split(" ")[0];
 
+  // auth
   const [uid, setUid] = useState<string | null>(null);
   const [nickname, setNickname] = useState<string | undefined>(undefined);
 
-  const [book, setBook] = useState<any>(null);
-  const [readPages, setReadPages] = useState<number>(0);
-  const [totalPages, setTotalPages] = useState<number>(320);
+  // book
+  const [book, setBook] = useState<BookData | null>(null);
+  const [totalPages, setTotalPages] = useState(320);
+  const [readPages, setReadPages] = useState(0);
+  const [summary, setSummary] = useState("");
 
-  const [rating, setRating] = useState<number>(0);
-  const [hoverRating, setHoverRating] = useState<number>(0);
-  const [reviewText, setReviewText] = useState("");
-
+  // rating & 공개 감상평
   const [reviews, setReviews] = useState<PublicReview[]>([]);
-  const myReview = useMemo(() => reviews.find(r => r.uid === uid), [reviews, uid]);
+  const [reviewText, setReviewText] = useState("");
+  const [rating, setRating] = useState(0);
+  const [hoverRating, setHoverRating] = useState(0);
+  const myReview = useMemo(() => reviews.find((r) => r.uid === uid), [reviews, uid]);
   const [avgRating, setAvgRating] = useState<number | null>(null);
-  const [reviewCount, setReviewCount] = useState<number>(0);
+  const [reviewCount, setReviewCount] = useState(0);
 
+  // 개인 메모
   const [memos, setMemos] = useState<PrivateMemo[]>([]);
   const [memoText, setMemoText] = useState("");
 
-  // ── Auth
+  // session
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionStartAt, setSessionStartAt] = useState<number | null>(null);
+  const [startReadPages, setStartReadPages] = useState<number | null>(null);
+  const [elapsedSec, setElapsedSec] = useState(0);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // derived
+  const safeRead = Math.min(readPages, totalPages);
+  const leftPages = useMemo(() => Math.max(0, totalPages - readPages), [totalPages, readPages]);
+  const progressPct = useMemo(
+    () => (totalPages > 0 ? Math.round((safeRead / totalPages) * 100) : 0),
+    [safeRead, totalPages]
+  );
+
+  /** ─────────────────────────────────────────────────────────────
+   *  Auth & 기본 데이터 로딩
+   * ───────────────────────────────────────────────────────────── */
   useEffect(() => {
     return onAuthStateChanged(getAuth(), async (u) => {
       setUid(u?.uid ?? null);
       if (u) {
         const prof = await getDoc(doc(db, "users", u.uid));
-        if (prof.exists()) setNickname((prof.data() as any)?.nickname);
+        setNickname(prof.exists() ? (prof.data() as any)?.nickname : undefined);
       } else {
         setNickname(undefined);
       }
     });
   }, []);
 
-  // ── 로컬 캐시에서 표지/제목
+  // 로컬 캐시로 표지/제목 채우기
   useEffect(() => {
     const key = uid ? `book-list:${uid}` : "book-list";
     try {
       const raw = localStorage.getItem(key);
       if (!raw) return;
       const list = JSON.parse(raw);
-      const found = list.find((b: any) => b.isbn === cleanId);
-      if (found) setBook(found);
+      const found = list.find((b: any) => b.isbn === isbn);
+      if (found) {
+        setBook({
+          title: found.title ?? "(제목 없음)",
+          authors: found.authors ?? [],
+          thumbnail: found.thumbnail,
+          publisher: found.publisher,
+          totalPages,
+          readPages,
+          summary,
+        });
+      }
     } catch {}
-  }, [uid, cleanId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uid, isbn]);
 
-  // ── 내 책 진행/별점 로드
+  // 내 책 진행/개인 별점
   useEffect(() => {
-    if (!uid || !cleanId) return;
+    if (!uid) return;
     (async () => {
-      const ref = doc(db, "users", uid, "books", cleanId);
+      const ref = doc(db, "users", uid, "books", isbn);
       const snap = await getDoc(ref);
       if (snap.exists()) {
         const d = snap.data() as any;
-        setReadPages(Number(d.readPages || 0));
         setTotalPages(Number(d.totalPages || 320));
+        setReadPages(Number(d.readPages || 0));
         setRating(Number(d.rating || 0));
-        setBook((prev: any) => prev || d);
+        setSummary(d.summary || "");
+        setBook((prev) => prev || {
+          title: d.title ?? "(제목 없음)",
+          authors: d.authors ?? [],
+          thumbnail: d.thumbnail,
+          publisher: d.publisher,
+          totalPages: Number(d.totalPages || 320),
+          readPages: Number(d.readPages || 0),
+          summary: d.summary || "",
+        });
       }
     })();
-  }, [uid, cleanId]);
+  }, [uid, isbn]);
 
-  // ── 공개 감상평 구독 + 평균/개수
+  // 공개 감상평 구독 + 평균/개수
   useEffect(() => {
-    if (!cleanId) return;
-    const qy = query(collection(db, "books", cleanId, "reviews"), orderBy("createdAt", "desc"));
+    const qy = query(collection(db, "books", isbn, "reviews"), orderBy("createdAt", "desc"));
     const unsub = onSnapshot(qy, (snap) => {
-      const rows: PublicReview[] = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+      const rows: PublicReview[] = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
       setReviews(rows);
-      const vals = rows.map(r => r.rating).filter(n => typeof n === "number" && n > 0);
+      const vals = rows.map((r) => r.rating).filter((n) => typeof n === "number" && n > 0);
       setReviewCount(vals.length);
       setAvgRating(vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null);
     });
     return () => unsub();
-  }, [cleanId]);
+  }, [isbn]);
 
-  // ── 내 감상평 프리필
+  // 내 감상평 프리필
   useEffect(() => {
-    if (!uid || !cleanId) return;
+    if (!uid) return;
     (async () => {
-      const me = await getDoc(doc(db, "books", cleanId, "reviews", uid));
+      const me = await getDoc(doc(db, "books", isbn, "reviews", uid));
       if (me.exists()) {
         const d = me.data() as any;
         setReviewText(d.text || "");
         if (typeof d.rating === "number") setRating(d.rating);
       }
     })();
-  }, [uid, cleanId]);
+  }, [uid, isbn]);
 
-  // ── 개인 메모 구독
+  // 개인 메모 구독
   useEffect(() => {
-    if (!uid || !cleanId) { setMemos([]); return; }
-    const q = query(
-      collection(db, "users", uid, "books", cleanId, "memos"),
-      orderBy("createdAt", "desc")
-    );
-    const unsub = onSnapshot(q, snap => {
-      setMemos(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) })));
+    if (!uid) { setMemos([]); return; }
+    const q = query(collection(db, "users", uid, "books", isbn, "memos"), orderBy("createdAt", "desc"));
+    const unsub = onSnapshot(q, (snap) => {
+      setMemos(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })));
     });
     return () => unsub();
-  }, [uid, cleanId]);
+  }, [uid, isbn]);
 
-  // ── 별점 UI
+  /** ─────────────────────────────────────────────────────────────
+   *  세션 타이머
+   * ───────────────────────────────────────────────────────────── */
+  useEffect(() => {
+    if (!sessionStartAt) return;
+    timerRef.current = setInterval(() => {
+      setElapsedSec(Math.floor((Date.now() - sessionStartAt) / 1000));
+    }, 1000);
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [sessionStartAt]);
+
+  const handleStart = async () => {
+    if (!uid) return alert("로그인이 필요합니다.");
+    if (sessionId) return;
+
+    const ref = await addDoc(collection(db, "users", uid, "books", isbn, "sessions"), {
+      startedAt: new Date().toISOString(),
+      source: "timer",
+      device: "web",
+    });
+
+    setSessionId(ref.id);
+    setSessionStartAt(Date.now());
+    setStartReadPages(readPages);
+    setElapsedSec(0);
+  };
+
+  const handleStop = async () => {
+    if (!uid || !sessionId || !sessionStartAt || startReadPages == null) return;
+
+    // 종료 시 사용자의 현재 읽은 페이지 입력
+    const input = prompt(
+      `현재 읽은 페이지를 입력하세요.\n(최소 ${readPages}p, 최대 ${totalPages}p)`
+    );
+    if (input == null) return;
+    const finalRead = Number(input);
+    if (!Number.isFinite(finalRead)) return alert("숫자를 입력해주세요.");
+
+    const clampedFinal = Math.max(readPages, Math.min(totalPages, Math.floor(finalRead)));
+    const rawDelta = clampedFinal - startReadPages;
+    const durationSec = Math.max(1, Math.floor((Date.now() - sessionStartAt) / 1000));
+    const durationMin = durationSec / 60;
+
+    // 1차(클라) 방어
+    if (durationSec < MIN_SESSION_SEC) {
+      await updateDoc(doc(db, "users", uid, "books", isbn, "sessions", sessionId), {
+        endedAt: new Date().toISOString(),
+        pages: 0,
+        note: "too_short_client",
+      });
+      cleanupSession();
+      return alert("세션이 너무 짧아요(3분 이상 읽어주세요).");
+    }
+
+    const speedCap = Math.ceil(durationMin * MAX_PAGES_PER_MIN); // ✅ 분당 5p 상한
+    const dailyKey = `cap:${uid}:${isbn}:${new Date().toDateString()}`;
+    const usedToday = Number(localStorage.getItem(dailyKey) || 0);
+    const dailyLeft = Math.max(0, DAILY_PAGES_CAP - usedToday);
+    const maxByLeft = Math.max(0, totalPages - readPages);
+
+    const finalDelta = Math.max(0, Math.min(rawDelta, speedCap, dailyLeft, maxByLeft));
+
+    // 세션 완료 기록(임시: 클라에서 작성 — 2단계에서 서버 전용으로 이전 예정)
+    await updateDoc(doc(db, "users", uid, "books", isbn, "sessions", sessionId), {
+      endedAt: new Date().toISOString(),
+      pages: finalDelta,
+      durationSec,
+      rawDelta,
+      appliedDelta: finalDelta,
+    });
+
+    if (finalDelta <= 0) {
+      cleanupSession();
+      return alert("반영 가능한 증가량이 없습니다.");
+    }
+
+    const newReadPages = Math.min(totalPages, readPages + finalDelta);
+    await setDoc(
+      doc(db, "users", uid, "books", isbn),
+      {
+        totalPages,
+        readPages: newReadPages,
+        summary,
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+    setReadPages(newReadPages);
+
+    // 일일 누적 키 갱신
+    localStorage.setItem(dailyKey, String(usedToday + finalDelta));
+
+    // 기존 미션 연동 이벤트와 호환 (2단계에서 서버로 이전 예정)
+    window.dispatchEvent(new CustomEvent("reading-progress", { detail: finalDelta }));
+
+    cleanupSession();
+    alert(`저장되었습니다! (이번 세션 반영: +${finalDelta}p)`);
+  };
+
+  const cleanupSession = () => {
+    setSessionId(null);
+    setSessionStartAt(null);
+    setStartReadPages(null);
+    setElapsedSec(0);
+    if (timerRef.current) clearInterval(timerRef.current);
+  };
+
+  /** ─────────────────────────────────────────────────────────────
+   *  공개 감상평 / 개인 메모
+   * ───────────────────────────────────────────────────────────── */
   const Star = ({ filled }: { filled: boolean }) => (
     <svg viewBox="0 0 20 20" className={`w-6 h-6 ${filled ? "text-yellow-400" : "text-gray-300"}`} fill="currentColor">
       <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.1 3.385a1 1 0 00.95.69h3.556c.969 0 1.371 1.24.588 1.81l-2.876 2.09a1 1 0 00-.364 1.118l1.1 3.386c.3.92-.755 1.688-1.54 1.118l-2.876-2.09a1 1 0 00-1.176 0l-2.876 2.09c-.785.57-1.84-.198-1.54-1.118l1.1-3.386a1 1 0 00-.364-1.118L2.755 8.812c-.783-.57-.38-1.81.588-1.81h3.556a1 1 0 00.95-.69l1.2-3.385z"/>
@@ -152,7 +328,7 @@ export default function BookDetailPage() {
     const active = hoverRating || rating;
     return (
       <div className="flex items-center gap-1" role="radiogroup" aria-label="별점 선택">
-        {[1,2,3,4,5].map(n => (
+        {[1, 2, 3, 4, 5].map((n) => (
           <button
             key={n}
             type="button"
@@ -172,72 +348,39 @@ export default function BookDetailPage() {
     );
   };
 
-  // ── 공개 감상평 저장/삭제
   const savePublicReview = async () => {
     if (!uid) return alert("로그인 후 이용해주세요.");
     const text = reviewText.trim();
     if (!text) return alert("감상평을 입력해주세요.");
 
     await setDoc(
-      doc(db, "books", cleanId, "reviews", uid),
+      doc(db, "books", isbn, "reviews", uid),
       { uid, nickname: nickname || null, rating, text, createdAt: serverTimestamp(), updatedAt: serverTimestamp() },
       { merge: true }
     );
-
-    // 내 책 문서에도 별점 동기화(선택)
-    await setDoc(doc(db, "users", uid, "books", cleanId), {
-      rating, updatedAt: new Date().toISOString()
-    }, { merge: true });
+    await setDoc(doc(db, "users", uid, "books", isbn), { rating, updatedAt: new Date().toISOString() }, { merge: true });
   };
 
   const deletePublicReview = async () => {
     if (!uid) return;
     if (!confirm("내 감상평을 삭제할까요?")) return;
-    await deleteDoc(doc(db, "books", cleanId, "reviews", uid));
+    await deleteDoc(doc(db, "books", isbn, "reviews", uid));
     setReviewText("");
   };
 
-  // ── 진행 저장 (+ 미션 delta 이벤트 발행 & 누적 보관)
-  const handleSaveProgress = async () => {
-    if (!uid) return;
-
-    const ref = doc(db, "users", uid, "books", cleanId);
-
-    // 1) 이전 readPages 로드 → delta 계산 (다중탭/지연 동기화 안전)
-    let prev = 0;
-    try {
-      const snap = await getDoc(ref);
-      prev = snap.exists() ? (snap.data() as any).readPages || 0 : 0;
-    } catch { prev = 0; }
-
-    const safeTotal = Math.max(0, Number(totalPages || 0));
-    const next = Math.min(Math.max(Number(readPages || 0), 0), safeTotal);
-    const delta = next - prev;
-
-    // 2) 저장 (총 페이지 포함, 직렬화된 타임스탬프)
-    await setDoc(ref, {
-      readPages: next,
-      totalPages: safeTotal,
-      rating,
-      updatedAt: new Date().toISOString()
-    }, { merge: true });
-
-    // 3) 증가분이 있을 때만 미션 이벤트 발행 + 페일세이프 누적
-    if (delta > 0) {
-      // 즉시 반영
-      window.dispatchEvent(new CustomEvent("reading-progress", { detail: delta }));
-      // 미마운트/오프라인 대비 누적 저장
-      const cur = Number(localStorage.getItem("pending-delta") || "0");
-      localStorage.setItem("pending-delta", String(cur + delta));
-      // (선택) 리스트 강제 싱크 트리거
-      window.dispatchEvent(new Event("reading-progress-sync"));
-    }
-
-    alert("저장되었습니다!");
+  const addMemo = async () => {
+    if (!uid) return alert("로그인 후 이용해주세요.");
+    const text = memoText.trim();
+    if (!text) return alert("메모를 입력해주세요.");
+    await addDoc(collection(db, "users", uid, "books", isbn, "memos"), {
+      uid, text, pagesAt: readPages, createdAt: serverTimestamp(),
+    });
+    setMemoText("");
   };
 
-  // ── 진행 바 데이터
-  const safeRead = Math.min(readPages, totalPages);
+  /** ─────────────────────────────────────────────────────────────
+   *  차트 데이터
+   * ───────────────────────────────────────────────────────────── */
   const barData = {
     labels: [""],
     datasets: [
@@ -253,6 +396,7 @@ export default function BookDetailPage() {
     scales: { x: { stacked: true, max: totalPages, beginAtZero: true, display: false }, y: { stacked: true, display: false } },
   };
 
+  // utils
   const formatDate = (ts?: any) => {
     const d = ts?.toDate ? ts.toDate() : (ts ? new Date(ts) : null);
     if (!d) return "";
@@ -265,7 +409,6 @@ export default function BookDetailPage() {
   };
 
   if (!book) return <div className="p-4 text-gray-500">로딩 중...</div>;
-
   const roundedAvg = avgRating !== null ? Math.round(avgRating) : null;
 
   return (
@@ -299,36 +442,54 @@ export default function BookDetailPage() {
             </div>
           </div>
 
-          {/* 진행 입력(읽은/총 페이지) */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">📖 읽은 페이지 / 총 페이지</label>
-            <div className="flex gap-3 items-center mb-4">
-              <input
-                type="number"
-                value={readPages}
-                min={0}
-                onChange={(e) => setReadPages(Math.min(Number(e.target.value || 0), Number(totalPages || 0)))}
-                className="border rounded-lg px-3 py-2 w-28"
-                placeholder="읽은 페이지"
-              />
-              <span className="text-sm text-gray-500">/</span>
-              <input
-                type="number"
-                value={totalPages}
-                min={0}
-                onChange={(e) => setTotalPages(Math.max(0, Number(e.target.value || 0)))}
-                className="border rounded-lg px-3 py-2 w-28"
-                placeholder="총 페이지(예: 320)"
-              />
-              <span className="text-sm text-gray-500">페이지</span>
+          {/* 읽기 세션 카드 */}
+          <div className="bg-white p-4 rounded-2xl shadow space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="block text-sm font-semibold text-gray-700">⏱️ 읽기 세션</label>
+              <div className="text-sm text-gray-500">남은 페이지: <b>{leftPages}p</b></div>
             </div>
 
-            <div className="h-[44px] w-full">
-              <Bar data={barData} options={barOptions} />
-            </div>
-            <p className="text-xs text-gray-500 text-right mt-1">
-              {readPages}p / {totalPages}p
-            </p>
+            {sessionId ? (
+              <>
+                <div className="text-3xl font-mono tracking-wider">
+                  {String(Math.floor(elapsedSec / 60)).padStart(2, "0")}:
+                  {String(elapsedSec % 60).padStart(2, "0")}
+                </div>
+                <p className="text-xs text-gray-500">
+                  세션 ID: {sessionId} · 시작 페이지 스냅샷: {startReadPages}p
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleStop}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-full"
+                  >
+                    읽기 종료 & 저장
+                  </button>
+                  <button
+                    onClick={cleanupSession}
+                    className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-2 rounded-full"
+                    title="세션 취소(기록 안 함)"
+                  >
+                    취소
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500">* 최소 {MIN_SESSION_SEC / 60}분 이상만 인정됩니다. (분당 최대 {MAX_PAGES_PER_MIN}p)</p>
+              </>
+            ) : (
+              <button
+                onClick={handleStart}
+                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-full"
+              >
+                읽기 시작
+              </button>
+            )}
+          </div>
+
+          {/* 진행률 (시각화) */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-1">📖 진행률</label>
+            <div className="h-[44px] w-full"><Bar data={barData} options={barOptions} /></div>
+            <p className="text-xs text-gray-500 text-right mt-1">{readPages}p / {totalPages}p · {progressPct}%</p>
           </div>
 
           {/* 공개 감상평 */}
@@ -353,24 +514,19 @@ export default function BookDetailPage() {
                   {myReview ? "수정 하기" : "등록"}
                 </button>
                 {myReview && (
-                  <button
-                    onClick={deletePublicReview}
-                    className="h-[36px] text-xs text-red-500 hover:underline"
-                  >
+                  <button onClick={deletePublicReview} className="h-[36px] text-xs text-red-500 hover:underline">
                     삭제
                   </button>
                 )}
               </div>
             </div>
 
-            {/* 공개 감상평 목록 */}
+            {/* 목록 */}
             <div className="mt-6 space-y-4">
               <div className="flex items-center justify-between">
                 <h4 className="text-sm text-gray-600">등록된 감상평 ({reviews.length})</h4>
               </div>
-              {reviews.length === 0 && (
-                <p className="text-sm text-gray-400">아직 등록된 감상평이 없습니다.</p>
-              )}
+              {reviews.length === 0 && <p className="text-sm text-gray-400">아직 등록된 감상평이 없습니다.</p>}
               {reviews.map((r) => (
                 <div key={r.id} className="border rounded-xl p-4 bg-gray-50/80 shadow-sm">
                   <div className="flex justify-between items-center">
@@ -402,15 +558,7 @@ export default function BookDetailPage() {
             placeholder={`메모를 남기면 현재 읽은 페이지(${readPages}p)가 함께 저장돼요.`}
           />
           <button
-            onClick={async () => {
-              if (!uid) return alert("로그인 후 이용해주세요.");
-              const text = memoText.trim();
-              if (!text) return alert("메모를 입력해주세요.");
-              await addDoc(collection(db, "users", uid, "books", cleanId, "memos"), {
-                uid, text, pagesAt: readPages, createdAt: serverTimestamp(),
-              });
-              setMemoText("");
-            }}
+            onClick={addMemo}
             className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-lg font-semibold"
           >
             메모 등록
@@ -421,26 +569,17 @@ export default function BookDetailPage() {
               <div key={m.id} className="border rounded-xl p-4 bg-white shadow-sm">
                 <div className="flex justify-between text-xs text-gray-500">
                   <span>{formatDate(m.createdAt)} · {m.pagesAt}p</span>
-                  {/* 삭제 버튼은 기존 함수로 처리 */}
                 </div>
                 <p className="mt-1 text-sm whitespace-pre-wrap">{m.text}</p>
               </div>
             ))}
-            {memos.length === 0 && (
-              <p className="text-sm text-gray-400">아직 메모가 없습니다.</p>
-            )}
+            {memos.length === 0 && <p className="text-sm text-gray-400">아직 메모가 없습니다.</p>}
           </div>
         </aside>
       </div>
 
-      {/* 하단 버튼 */}
-      <div className="flex justify-between pt-12">
-        <button
-          onClick={handleSaveProgress}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-semibold"
-        >
-          저장하기
-        </button>
+      {/* 하단: "저장하기" 버튼 없음(세션 종료 시 저장) */}
+      <div className="flex justify-end pt-12">
         <button onClick={() => window.history.back()} className="text-sm text-gray-500 underline">
           닫기
         </button>

@@ -22,23 +22,23 @@ import { db } from "./utils/firebase";
 export default function Home() {
   const router = useRouter();
   const [uid, setUid] = useState<string | null>(null);
-  const [authReady, setAuthReady] = useState(false); // ✅ 추가
+  const [authReady, setAuthReady] = useState(false);
   const [bookList, setBookList] = useState<Book[]>([]);
   const [view, setView] = useState<"main" | "mypage">("main");
   const [showSearch, setShowSearch] = useState(false);
 
   const bookKey = (id?: string | null) => (id ? `book-list:${id}` : "book-list");
 
-  // 🔐 인증 상태 관찰 (localStorage 의존 제거)
+  // 🔐 인증 상태 관찰
   useEffect(() => {
     const unsub = onAuthStateChanged(getAuth(), (u) => {
       setUid(u?.uid ?? null);
-      setAuthReady(true);              // ✅ 최초 응답 후에만 가드 동작
+      setAuthReady(true);
     });
     return () => unsub();
   }, []);
 
-  // ❗ authReady 후에만 /login 리다이렉트 → 루프 방지
+  // ❗ authReady 후에만 /login 리다이렉트
   useEffect(() => {
     if (!authReady) return;
     if (!uid) router.replace("/login");
@@ -59,6 +59,9 @@ export default function Home() {
               authors: data.authors || (data.author ? [data.author] : []),
               thumbnail: data.thumbnail,
               publisher: data.publisher,
+              // 선택 필드가 있으면 유지 가능(런타임)
+              totalPages: data.totalPages,
+              url: data.url,
             } as Book;
           });
           setBookList(fromFs);
@@ -79,15 +82,15 @@ export default function Home() {
     })();
   }, [uid]);
 
-  // ✅ 책 추가
-  const handleBookSelect = async (book: Book) => {
+  // ✅ 책 추가 — totalPages 우선 반영
+  const handleBookSelect = async (book: Book & { totalPages?: number; url?: string }) => {
     const currentUid = uid || getAuth().currentUser?.uid;
     if (!currentUid) {
       alert("로그인 상태를 확인해주세요.");
       return;
     }
     const isbn = book.isbn.split(" ")[0];
-    const cleaned: Book = { ...book, isbn };
+    const cleaned = { ...book, isbn };
 
     setBookList((prev) => {
       if (prev.some((b) => b.isbn === isbn)) return prev;
@@ -101,7 +104,10 @@ export default function Home() {
       {
         ...cleaned,
         readPages: 0,
-        totalPages: 320,
+        totalPages:
+          Number.isFinite(book.totalPages) && (book.totalPages ?? 0) > 0
+            ? book.totalPages
+            : 320,
         summary: "",
         thoughts: "",
         createdAt: new Date().toISOString(),

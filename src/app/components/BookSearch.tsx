@@ -197,7 +197,7 @@ export default function BookSearch({ onBookSelect }: BookSearchProps) {
 
                     {/* ⭐ 평균 별점 (읽기 전용) */}
                     <RatingRow isbn={book.isbn} />
-                  </div>
+                  </div>a
                 </div>
 
                 {/* 즐겨찾기 버튼 */}
